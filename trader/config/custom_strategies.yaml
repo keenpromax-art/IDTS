@@ -1,0 +1,24 @@
+# Your own strategies. Copy a block, change the name, edit the numbers.
+#
+# A setup has three parts:
+#   trigger  - the comparison that fires it
+#   filters  - more comparisons that must also hold (all of them)
+#   stop     - where the protective stop goes
+#   target   - where the profit is taken
+#
+# indicators: close open high low volume price ema rsi atr adx macd bb vwap
+#              donchian supertrend psar stoch cci roc mfi keltner
+# operators:  > >= < <= == crosses_above crosses_below
+#
+# For macd / bb / donchian / supertrend / stoch / keltner add "part":
+#   macd: line | signal | hist      bb: upper | mid | lower
+#   donchian: high | low            supertrend: line | direction
+#   stoch: k | d                   keltner: upper | mid | lower
+#
+# Run `python -m trader strategies` to see everything that is loaded.
+# Run `python -m trader add-strategy` to build one interactively.
+#
+# Your setups run like any built-in one: they are scored, ranked against
+# each other and traded under the same risk rules.
+
+strategies: {}

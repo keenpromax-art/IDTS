@@ -1,0 +1,15 @@
+python>=3.11
+rich>=13
+pandas>=2
+numpy>=1.26
+yfinance>=0.2
+smartapi-python>=1.5
+pyotp>=2.9
+logzero>=1.7
+pydantic>=2
+PyYAML>=6
+python-dotenv>=1
+pytest>=8
+# Optional accelerator for the EMA recursion in trader/core/np_indicators.py.
+# Without it the code falls back to a numpy loop - slower but correct.
+scipy>=1.10

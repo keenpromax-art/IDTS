@@ -1,0 +1,158 @@
+mode: paper
+live_trading_confirmed: false
+theme: default
+ui:
+  density: auto
+scan_interval_seconds: 60
+candle_interval: 5m
+lookback_days: 5
+live_quotes: true
+price_refresh_seconds: 1.0
+price_refresh_max_workers: 12
+fast_scan_seconds: 5.0
+risk:
+  risk_per_trade_pct: 0.75
+  max_position_pct_of_equity: 20
+  max_concurrent_positions: 6
+  max_positions_per_market: 3
+  max_trades_per_symbol_per_day: 2
+  max_daily_loss_pct: 1.5
+  cooldown_minutes_after_loss: 30
+  no_entry_first_minutes: 5
+  no_entry_last_minutes: 30
+  square_off_before_close_minutes: 12
+  close_on_market_closed: true
+  min_risk_reward: 1.5
+  trailing_stop: true
+  trailing_atr_mult: 1.0
+capital:
+  Australia: 100000
+  Japan: 1000000
+  Korea: 1000000
+  HongKong: 100000
+  India: 1000000
+  Brazil: 100000
+  Europe: 10000
+  USA: 10000
+  Crypto: 10000
+strategies:
+  enabled:
+  - ema_cross
+  - ema_20_50
+  - ema_50_200
+  - ema_8_21
+  - ema_stack
+  - macd_momentum
+  - macd_zero
+  - macd_divergence
+  - vwap
+  - vwap_band
+  - supertrend
+  - rsi_reversal
+  - stochastic
+  - cci
+  - roc
+  - mfi
+  - williams_r
+  - adx_di
+  - psar
+  - triple_screen
+  - ichimoku
+  - donchian
+  - keltner
+  - bb_expansion
+  - bb_squeeze
+  - volume_breakout
+  - range_extreme
+  - pivot
+  - orb
+  disabled: []
+rules:
+  enabled:
+  - rule_trend_stack
+  - rule_trend_stack_short
+  - rule_golden_cross
+  - rule_macd_ema
+  - rule_macd_ema_short
+  - rule_breakout_volume
+  - rule_breakout_volume_short
+  - rule_squeeze_release
+  - rule_vwap_reversion
+  - rule_vwap_reversion_short
+  - rule_supertrend_volume
+  - rule_rsi_mfi
+  - rule_rsi_mfi_short
+  - rule_ema20_50_cross
+  - rule_keltner_trend
+  - rule_obv_momentum
+  disabled: []
+rule_params:
+  rule_trend_stack:
+    min_confidence: 0.55
+    stop_atr: 1.5
+    target_rr: 2.5
+  rule_breakout_volume:
+    min_confidence: 0.6
+    stop_atr: 1.5
+    target_rr: 2.5
+  rule_vwap_reversion:
+    min_confidence: 0.5
+    stop_atr: 1.5
+    target_rr: 2.0
+selector:
+  min_trade_count: 8
+  min_expectancy_r: 0.0
+  min_profit_factor: 1.1
+  min_win_rate: 0.35
+  min_signal_confidence: 0.55
+  min_score: 0.55
+  max_backtest_setups: 6
+  min_market_score: 0.6
+  max_trades_per_market_per_cycle: 2
+  backtest_sessions: 5
+  backtest_max_bars: 400
+  score_refresh_cycles: 5
+  weights:
+    expectancy: 0.4
+    profit_factor: 0.2
+    win_rate: 0.15
+    regime_fit: 0.15
+    confidence: 0.1
+  regime:
+    adx_trending_threshold: 25
+    atr_percentile_high: 65
+  trend_strategies: []
+  meanrev_strategies: []
+paper:
+  slippage_bps: 5
+  brokerage:
+    India:
+      brokerage_flat: 20
+      stt_pct: 0.025
+      exchange_pct: 0.00345
+      gst_pct: 18
+    Japan:
+      brokerage_flat: 0
+      stt_pct: 0.0
+      exchange_pct: 0.0
+      gst_pct: 0
+    Europe:
+      brokerage_flat: 0
+      stt_pct: 0.0
+      exchange_pct: 0.0
+      gst_pct: 0
+    USA:
+      brokerage_flat: 0
+      stt_pct: 0.0
+      exchange_pct: 0.0
+      gst_pct: 0
+angel:
+  enabled_if_creds: true
+  rate_limit_seconds: 0.34
+  instrument_master_refresh_hours: 24
+logging:
+  level: INFO
+  file: logs/trader.log
+db_path: data/trader.db
+csv_dir: data/reports
+crypto_enabled: true

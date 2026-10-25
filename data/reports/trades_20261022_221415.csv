@@ -1,0 +1,2 @@
+market,symbol,side,strategy,entry,exit,qty,ccy,pnl,pnl_inr,exit_reason,duration
+India,TCS.NS,SHORT,orb,3800.0,3720.0,5,INR,388.0,388.0,target,1800.0

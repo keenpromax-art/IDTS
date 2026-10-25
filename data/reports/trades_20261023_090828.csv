@@ -1,0 +1,2 @@
+market,symbol,side,strategy,entry,exit,qty,ccy,pnl,pnl_inr,exit_reason,duration
+Australia,CNU.AX,LONG,pivot,6.658327709913253,6.651672709703446,3005,AUD,-19.998275630471785,-1329.2553483466754,sl,43.182069

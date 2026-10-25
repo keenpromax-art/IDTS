@@ -1,0 +1,110 @@
+markets:
+  Australia:
+    exchange: ASX
+    code: AU
+    timezone: Australia/Sydney
+    open: "10:00"
+    close: "16:00"
+    lunch: null
+    suffix: ".AX"
+    currency: AUD
+    pre_close_minutes: 15
+    holidays: []
+
+  Japan:
+    exchange: TSE
+    code: JP
+    timezone: Asia/Tokyo
+    open: "09:00"
+    close: "15:00"
+    lunch:
+      start: "11:30"
+      end: "12:30"
+    suffix: ".T"
+    currency: JPY
+    pre_close_minutes: 15
+    holidays: []
+
+  HongKong:
+    exchange: HKEX
+    code: HK
+    timezone: Asia/Hong_Kong
+    open: "09:30"
+    close: "16:00"
+    lunch: null
+    suffix: ".HK"
+    currency: HKD
+    pre_close_minutes: 15
+    holidays: []
+
+  India:
+    exchange: NSE
+    code: IN
+    timezone: Asia/Kolkata
+    open: "09:15"
+    close: "15:30"
+    lunch: null
+    suffix: ".NS"
+    currency: INR
+    pre_close_minutes: 15
+    holidays: []
+
+  Europe:
+    exchange: LSE
+    code: UK
+    timezone: Europe/London
+    open: "08:00"
+    close: "16:30"
+    lunch: null
+    suffix: ".L"
+    currency: GBP
+    pre_close_minutes: 15
+    holidays: []
+
+  USA:
+    exchange: NYSE
+    code: US
+    timezone: America/New_York
+    open: "09:30"
+    close: "16:00"
+    lunch: null
+    suffix: ""
+    currency: USD
+    pre_close_minutes: 15
+    holidays: []
+  Korea:
+    exchange: KRX
+    code: KR
+    timezone: Asia/Seoul
+    open: "09:00"
+    close: "15:30"
+    lunch: null
+    suffix: ".KS"
+    currency: KRW
+    pre_close_minutes: 15
+    holidays: []
+  Brazil:
+    exchange: B3
+    code: BR
+    timezone: America/Sao_Paulo
+    open: "10:00"
+    close: "17:00"
+    lunch: null
+    suffix: ".SA"
+    currency: BRL
+    pre_close_minutes: 15
+    holidays: []
+  Crypto:
+    exchange: BINANCE
+    code: CR
+    timezone: UTC
+    open: "00:00"
+    close: "23:59"
+    lunch: null
+    suffix: ""
+    currency: USDT
+    qty_step: 0.0001
+    pre_close_minutes: 0
+    holidays: []
+    always_open: true
+    crypto: true

@@ -1,0 +1,2 @@
+market,symbol,side,strategy,entry,exit,qty,ccy,pnl,pnl_inr,exit_reason,duration
+USA,BMY,SHORT,vwap,62.5936875,62.931451526641844,31,USD,-10.470684825897116,-869.0668405494606,sl,4835.312749

@@ -1,0 +1,2 @@
+market,symbol,side,strategy,entry,exit,qty,ccy,pnl,pnl_inr,exit_reason,duration
+Brazil,QUAL3.SA,SHORT,vwap,2.1089448951482774,2.181090066790581,9494,BRL,-684.9462595720283,-10274.193893580425,sl,4438.844153
