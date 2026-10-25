@@ -1,21 +1,27 @@
-# PyCache
- trader/core/__pycache__/
- trader/ui/__pycache__/
- trader/tests/__pycache__/
- trader/custom/__pycache__/
- data/trader.db
- data/reports/
- trader/.env
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
 
-# Distribution / generated docs
- docs/architecture.md
- docs/engineering_audit.md
- docs/implementation_roadmap.md
- docs/known_limitations.md
+# Environment
+.env
+.trader.env
 
-# Temporary scripts
- fix.py
- fix_prices.py
- fix_selector.py
- improve_render.py
- _t.py
+# Database
+data/trader.db
+data/*.db
+
+# Reports
+data/reports/
+
+# Dist
+dist/
+build/
+
+# Logs
+logs/
+
+# OS
+.DS_Store
