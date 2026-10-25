@@ -403921,3 +403921,30 @@
 2026-10-25 23:21:55,870 INFO trader.core.engine: INFO skipped 1 candidate(s): 1 already in position
 2026-10-25 23:22:02,788 INFO trader.core.engine: INFO report written data/reports\trades_20261025_232202.csv
 2026-10-25 23:22:02,791 INFO trader.core.engine: INFO report written data/reports\trades_20261025_232202.csv
+2026-10-25 23:22:09,952 INFO trader.core.engine: Engine started — paper mode, 883 symbols, broker paper
+2026-10-25 23:22:10,130 WARNING yfinance: Crumb fetch rate-limited (HTTP 429), continuing without crumb
+2026-10-25 23:22:11,496 INFO trader.core.engine: Australia closed, sleeping; next open 10:00
+2026-10-25 23:22:11,552 INFO trader.core.engine: Japan closed, sleeping; next open 09:00
+2026-10-25 23:22:11,563 INFO trader.core.engine: HongKong closed, sleeping; next open 09:30
+2026-10-25 23:22:11,563 INFO trader.core.engine: India closed, sleeping; next open 09:15
+2026-10-25 23:22:11,567 INFO trader.core.engine: Europe closed, sleeping; next open 08:00
+2026-10-25 23:22:11,571 INFO trader.core.engine: USA closed, sleeping; next open 09:30
+2026-10-25 23:22:11,573 INFO trader.core.engine: Korea closed, sleeping; next open 09:00
+2026-10-25 23:22:11,576 INFO trader.core.engine: Brazil closed, sleeping; next open 10:00
+2026-10-25 23:22:15,195 ERROR yfinance: 
+31 Failed downloads:
+2026-10-25 23:22:15,195 ERROR yfinance: ['SUI-USD', 'MATIC-USD', 'ETH-USD', 'PEPE-USD', 'AAVE-USD', 'SNX-USD', 'LINK-USD', 'XLM-USD', 'UNI-USD', 'TIA-USD', 'CRV-USD', 'ICP-USD', 'HBAR-USD', 'QNT-USD', 'MKR-USD', 'DOGE-USD', 'SHIB-USD', 'AVAX-USD', 'GRT-USD', 'BNB-USD', 'DOT-USD', 'LDO-USD', 'APT-USD', 'ARB-USD', 'SEI-USD', 'VET-USD', 'XRP-USD', 'INJ-USD', 'ADA-USD', 'SAND-USD', 'RUNE-USD']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-10-25 23:22:23,230 INFO trader.core.engine: ORDER OPEN Crypto AXS-USD SHORT via vwap qty 2106.8155 (score 0.65)
+2026-10-25 23:22:23,310 INFO trader.core.engine: ORDER OPEN Crypto ALGO-USD SHORT via vwap qty 18905.3791 (score 0.62)
+2026-10-25 23:23:10,792 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
+2026-10-25 23:24:10,570 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
+2026-10-25 23:25:11,380 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
+2026-10-25 23:26:11,805 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
+2026-10-25 23:27:12,994 ERROR yfinance: 
+30 Failed downloads:
+2026-10-25 23:27:12,996 ERROR yfinance: ['SUI-USD', 'MATIC-USD', 'PEPE-USD', 'TIA-USD', 'ICP-USD', 'XLM-USD', 'LINK-USD', 'AAVE-USD', 'UNI-USD', 'SNX-USD', 'CRV-USD', 'BNB-USD', 'GRT-USD', 'HBAR-USD', 'SHIB-USD', 'AVAX-USD', 'DOGE-USD', 'QNT-USD', 'MKR-USD', 'ARB-USD', 'SEI-USD', 'DOT-USD', 'LDO-USD', 'XRP-USD', 'RUNE-USD', 'APT-USD', 'VET-USD', 'ADA-USD', 'SAND-USD', 'INJ-USD']: YFRateLimitError('Too Many Requests. Rate limited. Try after a while.')
+2026-10-25 23:27:15,901 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
+2026-10-25 23:28:14,229 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
+2026-10-25 23:29:12,463 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
+2026-10-25 23:30:12,459 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
+2026-10-25 23:31:10,927 INFO trader.core.engine: INFO skipped 2 candidate(s): 2 max per market
