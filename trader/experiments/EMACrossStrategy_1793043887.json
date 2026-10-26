@@ -1,0 +1,35 @@
+{
+  "experiment_id": "EMACrossStrategy_1793043887",
+  "strategy_name": "EMACrossStrategy",
+  "code_hash": "e3b0c44298fc",
+  "data_range": [
+    "2023-01-01 00:00:00",
+    "2023-01-01 16:35:00"
+  ],
+  "universe": [
+    "RELIANCE"
+  ],
+  "assumptions": {
+    "min_expectancy_r": 0.0,
+    "min_trades": 10,
+    "min_profit_factor_after_costs": 1.0,
+    "max_drawdown_pct": 15.0,
+    "min_win_rate": 0.25
+  },
+  "parameter_set": {},
+  "stage": "walkforward",
+  "status": "pending",
+  "timestamp": "2026-10-26T19:44:47.902684+00:00",
+  "trade_results": null,
+  "walkforward": {
+    "folds": [],
+    "aggregate_metrics": {},
+    "best_fold_id": -1,
+    "worst_fold_id": -1,
+    "stable": false,
+    "report": "Insufficient data for walk-forward validation"
+  },
+  "oos_metrics": null,
+  "paper_metrics": null,
+  "promotion_decision": null
+}

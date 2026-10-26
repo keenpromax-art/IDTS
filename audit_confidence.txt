@@ -1,0 +1,29 @@
+AUDIT: Confidence Score Analysis
+
+1. HOW CONFIDENCE IS SET:
+   - Signal dataclass has: confidence: float = 0.5 (default)
+   - Set by strategy's generate() method
+   - Used in selector.score() as one of 5 weighted factors
+   - Weight: 0.15 out of total ~1.0
+
+2. HOW CONFIDENCE IS USED:
+   - In selector.score(): total = weighted_sum + w_confidence * conf
+   - min_signal_confidence = 0.55 filters weak signals
+   - Signals sorted by confidence for backtesting
+   - Ranking factor, NOT a probability
+
+3. WHAT IT REPRESENTS:
+   - NOT a probability of target hit
+   - NOT a heuristic in the traditional sense
+   - A COMPOSITE WEIGHT for ranking signals
+   - Combined with expectancy (0.35), PF (0.20), WR (0.15), regime (0.15)
+
+4. THE SCORE METHOD WEIGHTS:
+   expectancy: 0.35 (mapped from raw expectancy_r)
+   profit_factor: 0.20 (normed by /2.0)
+   win_rate: 0.15 (raw rate)
+   regime_fit: 0.15 (regime compatibility)
+   confidence: 0.15 (the signal's confidence field)
+
+CONCLUSION: Confidence is a SIGNAL RANKING WEIGHT, NOT a probability.
+==========================================================================

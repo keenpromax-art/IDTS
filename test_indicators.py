@@ -1,63 +1,49 @@
 import sys
-import pandas as pd
-import numpy as np
 sys.path.insert(0, r'C:\IDTS')
 
-# Create sample OHLCV data
+from trader.core.indicators import atr, adx, rsi, stochastic, mfi, obv, cci, roc, williams_r
+import pandas as pd
+import numpy as np
+
+# Create sample data with all needed columns
+dates = pd.date_range('2020-01-01', periods=100, freq='D')
 np.random.seed(42)
-n = 100
-close = 100 + np.cumsum(np.random.randn(n) * 0.5)
-high = close + np.abs(np.random.randn(n) * 0.3)
-low = close - np.abs(np.random.randn(n) * 0.3)
-vol = np.random.randint(500, 2000, n)
-df = pd.DataFrame({"close": close, "high": high, "low": low, "volume": vol})
+prices = 100 + np.cumsum(np.random.randn(100) * 0.02)
+volumes = np.random.randint(1000, 10000, 100)
+highs = prices * (1 + np.abs(np.random.randn(100)) * 0.005)
+lows = prices * (1 - np.abs(np.random.randn(100)) * 0.005)
 
-from trader.core.np_indicators import (
-    atr_np, rsi_np, vwap_np, _ema_np_fast,
-    macd_np, bollinger_np, stochastic_np, williams_r_np,
-    cci_np, obv_np, supertrend_np,
-)
+df = pd.DataFrame({
+    'close': prices,
+    'high': highs,
+    'low': lows,
+    'open': prices * (1 + np.random.randn(100) * 0.001),
+    'volume': volumes
+}, index=dates)
 
-close_arr = df["close"].to_numpy(dtype=float)
-high_arr = df["high"].to_numpy(dtype=float)
-low_arr = df["low"].to_numpy(dtype=float)
-vol_arr = df["volume"].to_numpy(dtype=float)
+# Test ATR
+atr_val = atr(df, 14)
+print(f"ATR (14): {atr_val.iloc[-1]:.4f}")
 
-# Test all the new indicators
-print("=== MACD ===")
-macd_line, macd_signal, macd_hist = macd_np(close_arr, 12, 26, 9)
-print(f"macd_line[-1]: {macd_line[-1]}")
-print(f"macd_signal[-1]: {macd_signal[-1]}")
-print(f"macd_hist[-1]: {macd_hist[-1]}")
+# Test ADX
+adx_val = adx(df, 14)
+print(f"ADX (14): {adx_val.iloc[-1]:.4f}")
 
-print("\n=== Bollinger Bands ===")
-bb_mid, bb_upper, bb_lower = bollinger_np(close_arr, 20, 2.0)
-print(f"bb_mid[-1]: {bb_mid[-1]}")
-print(f"bb_upper[-1]: {bb_upper[-1]}")
-print(f"bb_lower[-1]: {bb_lower[-1]}")
-bb_range = bb_upper[-1] - bb_lower[-1]
-bb_pos = (close_arr[-1] - bb_lower[-1]) / bb_range if bb_range != 0 else None
-print(f"bb_pos: {bb_pos}")
+# Test RSI
+rsi_val = rsi(df, 14)
+rsi_result = rsi_val.iloc[-1] if hasattr(rsi_val, 'iloc') else rsi_val
+print(f"RSI (14): {rsi_result:.4f}")
 
-print("\n=== Stochastic ===")
-stoch_k, stoch_d = stochastic_np(high_arr, low_arr, close_arr, 14, 3)
-print(f"stoch_k[-1]: {stoch_k[-1]}")
-print(f"stoch_d[-1]: {stoch_d[-1]}")
+# Test Stochastic
+stoch_val = stoch(df, 14)
+print(f"STOCH K: {stoch_val.iloc[-1]:.4f}")
 
-print("\n=== Williams %R ===")
-willr = williams_r_np(high_arr, low_arr, close_arr, 14)
-print(f"willr[-1]: {willr[-1]}")
+# Test MFI
+mfi_val = mfi(df, 14)
+print(f"MFI (14): {mfi_val.iloc[-1]:.4f}")
 
-print("\n=== CCI ===")
-cci_val = cci_np(high_arr, low_arr, close_arr, 20)
-print(f"cci[-1]: {cci_val[-1]}")
+# Test OBV
+obv_val = obv(df)
+print(f"OBV final: {obv_val.iloc[-1]:.0f}")
 
-print("\n=== OBV ===")
-obv_arr = obv_np(close_arr, vol_arr)
-print(f"obv[-1]: {obv_arr[-1]}")
-
-print("\n=== Supertrend ===")
-st = supertrend_np(high_arr, low_arr, close_arr, atr_np(high_arr, low_arr, close_arr, 14), 10, 3.0)
-print(f"supertrend[-1]: {st[-1]}")
-
-print("\n=== All new metrics test PASSED ===")
+print("\nAll basic indicators work!")

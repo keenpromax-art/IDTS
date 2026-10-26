@@ -2218,7 +2218,7 @@ class Dashboard:
         tight = bool(nt) and height < 2 + QUIET_TABLE_CHROME + 2
         chrome = TIGHT_TABLE_CHROME if tight else QUIET_TABLE_CHROME
         room = max(1, height - 2 - chrome)
-        show_strip = bool(nt) and room >= 2
+        show_strip = bool(nt)
         note_parts = []
         all_parts = []
         for m, pnl in sorted(e.portfolio.per_market_pnl().items(),
@@ -2307,7 +2307,7 @@ class Dashboard:
                          style="text")
             strip.append("  (INR)", style="dim")
         title = f"Completed Trades · {nt} · page {self._done_page + 1}/{pages}"
-        if not show_strip:
+        if not show_strip and nt == 0:
             return Panel(t, title=title, box=box.ROUNDED,
                          border_style="border")
         body = Group(t, strip)
