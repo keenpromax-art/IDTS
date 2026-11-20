@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional
 
+from trader.ui.input_base import InputProvider
+from trader.ui.input_win import WindowsInputProvider
+
 from rich.console import Console, Group
 from rich.layout import Layout
 from rich.live import Live
@@ -22,36 +25,13 @@ from trader.ui.format import (
     status_style, status_glyph, sparkline, gauge, truncate, exit_chip, level_tag, strip_level,
     fmt_pf, QUIET_BOX, QUIET_TABLE_CHROME, fmt_winrate, mkt_code,
     pct_arrow, TIGHT_TABLE_CHROME, fmt_age, fmt_r, fmt_compact, fmt_pnl_compact,
-    braille_chart,
+    braille_chart, SHORT_LABELS,
 )
 from trader.core.market_clock import MarketClock
 
 # the single animation in the app: a scan in progress shows a fast spinner.
 # Perceived speed lives here - a quick spinner makes the wait feel shorter.
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
-# short labels for every built-in setup/rule, so a column never shows "…"
-# while a meaningful three-to-ten character name exists.
-SHORT_LABELS = {
-    "ema_cross": "EMA-X", "ema_20_50": "20/50", "ema_50_200": "50/200",
-    "ema_8_21": "8/21", "ema_stack": "Stack", "macd_momentum": "MACD-V",
-    "macd_zero": "MACD-0", "macd_divergence": "MACD-D", "stochastic": "STOCH",
-    "cci": "CCI", "roc": "ROC", "mfi": "MFI", "williams_r": "W%R",
-    "rsi_reversal": "RSI-Rev", "donchian": "DONCH", "keltner": "KELT",
-    "bb_expansion": "BB-Exp", "volume_breakout": "Vol-BO",
-    "range_extreme": "Range-X", "psar": "PSAR", "adx_di": "ADX-DI",
-    "ichimoku": "ICHI", "triple_screen": "3-Scr", "vwap": "VWAP",
-    "vwap_band": "VWAP-B", "orb": "ORB", "supertrend": "ST",
-    "bb_squeeze": "BB-Sqz", "pivot": "Pivot",
-    "rule_trend_stack": "TrendPB", "rule_trend_stack_short": "TrendPB-S",
-    "rule_golden_cross": "Golden+", "rule_macd_ema": "MACD-EMA",
-    "rule_macd_ema_short": "MACD-EMA-S", "rule_breakout_volume": "BO-Vol",
-    "rule_breakout_volume_short": "BD-Vol", "rule_squeeze_release": "Sqz-Rel",
-    "rule_vwap_reversion": "VWAP-Rev", "rule_vwap_reversion_short": "VWAP-Rev-S",
-    "rule_supertrend_volume": "ST-Vol", "rule_rsi_mfi": "RSI-MFI",
-    "rule_rsi_mfi_short": "RSI-MFI-S", "rule_ema20_50_cross": "20/50-ADX",
-    "rule_keltner_trend": "Kelt-Stack", "rule_obv_momentum": "OBV-Mom",
-}
 
 VIEWS = ("monitor", "positions", "analytics", "diagnostics", "report",
          "log", "help", "detail")
@@ -68,7 +48,7 @@ def _block_gauge(fraction, width=8, full="█", empty="░"):
 
 
 class Dashboard:
-    def __init__(self, engine):
+    def __init__(self, engine, input_provider: InputProvider | None = None):
         self.engine = engine
         theme_name = engine.cfg.get("theme", "default")
         self.console = Console(theme=build_theme(theme_name))
@@ -101,6 +81,11 @@ class Dashboard:
         self._equity_seed = self._load_equity_seed()
         self._session_peak = 0.0
         self._render_cache = None    # memoisation window for one render pass
+        self._body_cache = None      # cross-frame cached body layout
+        self._body_cache_size = 0    # height of the cached body
+        self._body_cache_val = None  # last cache key (invalidates the body cache)
+        self._body_cache_at = 0.0    # when the body cache was created
+        self._input_provider = input_provider or WindowsInputProvider()
 
     def _rc(self, key, fn):
         """Memoise *fn* for the duration of one render pass."""
@@ -1538,6 +1523,34 @@ class Dashboard:
                     float("inf") if g["gw"] else 0.0)
                 g["avg_r"] = (g["r"] / g["n"]) if g["n"] else 0.0
 
+        # ── per-strategy rolling expectancy drift ────────────────────
+        # `trades` is already sorted by closed_at, so per-strategy lists
+        # stay in closing order and the trailing slice is the most recent N.
+        by_strategy: dict[str, list] = {}
+        for t in trades:
+            by_strategy.setdefault(t.strategy, []).append(t)
+
+        strategy_drift = {}
+        for name, tlist in by_strategy.items():
+            n = len(tlist)
+            if n < 3:
+                continue
+            overall_r = sum(t.r_multiple for t in tlist) / n
+            k = min(10, n)
+            trailing_r = sum(t.r_multiple for t in tlist[-k:]) / k
+            base = abs(overall_r)
+            drift_pct = ((trailing_r - overall_r) / base * 100.0) if base else 0.0
+            if overall_r > 0:
+                drift_flag = trailing_r < overall_r * 0.7   # > 30% decay
+            else:
+                drift_flag = trailing_r < overall_r
+            strategy_drift[name] = {
+                "overall_r": overall_r,
+                "trailing_r": trailing_r,
+                "drift_pct": drift_pct,
+                "drift_flag": drift_flag,
+            }
+
         sides = {}
         for t, pnl in zip(trades, pnls):
             s = sides.setdefault(t.side.value,
@@ -1601,7 +1614,8 @@ class Dashboard:
                 "strategies": strategies, "exits": exits,
                 "sides": sides, "buckets": buckets,
                 "scanner_metrics": scanner_metrics,
-                "metric_summary": metric_summary}
+                "metric_summary": metric_summary,
+                "strategy_drift": strategy_drift}
 
     def _report_summary_panel(self):
         b = self._report_bundle()
@@ -1700,9 +1714,27 @@ class Dashboard:
             adx = m.get("adx", "—")
             rvol = m.get("rvol", "—")
             l7.append(f" {sym}:R{rsi} A{adx} R{rvol} ", style="dim")
-        l7.append("\n", style="dim")
 
-        lines = [l1, l2, l3, l4, l5, l6]
+        # Rolling expectancy drift per strategy
+        l8 = Text()
+        l8.append("Drift: ", style="muted")
+        flagged = [
+            (name, d)
+            for name, d in sorted(b["strategy_drift"].items())
+            if d["drift_flag"]
+        ]
+        if not flagged:
+            l8.append("none detected", style="muted")
+        else:
+            bits = []
+            for name, d in flagged:
+                bits.append(
+                    f"{name} {d['trailing_r']:+.2f}R vs {d['overall_r']:+.2f}R "
+                    f"(flag: {d['drift_pct']:+.0f}%)"
+                )
+            l8.append(" · ".join(bits), style="pnl.neg")
+
+        lines = [l1, l2, l3, l4, l5, l6, l7, l8]
         body = Text()
         for i, line in enumerate(lines):
             line.truncate(inner)
@@ -2629,32 +2661,122 @@ class Dashboard:
             scanner += left
         return mk, scanner, bottom, active
 
+    def _engine_state_sig(self) -> tuple:
+        """Cheap signature of engine state that affects the display.
+
+        Changes when scan data, positions, trades, or mode change -
+        i.e. when the body needs to be re-rendered. Deliberately excludes
+        per-tick price updates (they're bounded by the body-cache TTL).
+        """
+        e = self.engine
+        scan_counts = tuple(
+            sorted((m, len(r or [])) for m, r in e.last_scan.items())
+        )
+        return (
+            scan_counts,
+            len(e.portfolio.positions),
+            len(e.portfolio.trades),
+            e.paused,
+            e.live_quotes,
+            getattr(e.risk, "kill_switch", False),
+            getattr(e, "scan_progress", ""),
+            round(getattr(e, "last_scan_elapsed", 0.0), 1),
+        )
+
+    def _body_cache_key(self) -> tuple:
+        """Key that changes whenever the body layout must be rebuilt."""
+        return (
+            self.console.width,
+            self.console.height,
+            self._density,
+            self._view,
+            self.market_filter,
+            self._signal_filter,
+            self._text_filter,
+            self._sort_mode,
+            self._selected,
+            self._pending_close,
+            self._input_mode,
+            self._engine_state_sig(),
+        )
+
     def render(self) -> Layout:
-        """Build one frame; helper results are memoised for this pass only."""
+        """Build one frame; helper results are memoised for this pass only.
+
+        The body (everything between header and footer) is cached across
+        frames. When the cache key is unchanged and the cache is under the
+        TTL we reuse it and only re-render the time-sensitive header and
+        footer. On a miss we render the full body, cache it, and assemble.
+        """
+        key = self._body_cache_key()
+        now = time.time()
+        ttl = 1.0  # seconds; bounds price staleness when nothing else changes
+        if (self._body_cache is not None
+                and self._body_cache_val == key
+                and now - self._body_cache_at < ttl):
+            layout = Layout()
+            if self._body_cache_size:
+                layout.split_column(
+                    Layout(self._header(), size=self._header_h()),
+                    Layout(self._body_cache, size=self._body_cache_size),
+                    Layout(self._footer(), size=1),
+                )
+            else:
+                layout.split_column(
+                    Layout(self._header(), size=self._header_h()),
+                    self._body_cache,
+                    Layout(self._footer(), size=1),
+                )
+            return layout
+
         self._render_cache = {}
         try:
-            return self._render_frame()
+            body, body_size = self._render_frame_body()
         finally:
             self._render_cache = None
 
-    def _render_frame(self) -> Layout:
+        self._body_cache = body
+        self._body_cache_size = body_size or 0
+        self._body_cache_val = key
+        self._body_cache_at = now
+
         layout = Layout()
-        footer = self._footer()
+        if body_size:
+            layout.split_column(
+                Layout(self._header(), size=self._header_h()),
+                Layout(body, size=body_size),
+                Layout(self._footer(), size=1),
+            )
+        else:
+            layout.split_column(
+                Layout(self._header(), size=self._header_h()),
+                body,
+                Layout(self._footer(), size=1),
+            )
+        return layout
+
+    def _render_frame_body(self):
+        """Build the body layout (everything between header and footer).
+
+        Returns (layout, total_height). total_height is None when Rich
+        should size the body flexibly (overlays and full-screen views);
+        otherwise it's the sum of the explicit panel heights so the parent
+        can size the body exactly as before.
+        """
+        layout = Layout()
         wide = self._wide()
-        header = Layout(self._header(), size=self._header_h())
 
         # modal overlays (help / detail) replace the main content but keep
         # the header and the command bar visible
         overlay = self._overlay()
         if overlay is not None:
-            layout.split_column(header, Layout(overlay), Layout(footer, size=1))
-            return layout
+            layout.split_column(Layout(overlay))
+            return layout, None
 
         view = self._view or "monitor"
         if view in ("positions", "analytics", "diagnostics", "report", "log"):
-            layout.split_column(header, Layout(self._view_panel(view)),
-                                Layout(footer, size=1))
-            return layout
+            layout.split_column(Layout(self._view_panel(view)))
+            return layout, None
 
         mk_h, scanner_h, bottom_h, active_h = self._space()
 
@@ -2676,12 +2798,11 @@ class Dashboard:
                 Layout(self._log_panel(), ratio=24),
             )
             layout.split_column(
-                header,
                 Layout(self._markets_panel(mk_h), size=mk_h),
                 Layout(self._scanner_panel(), size=scanner_h),
                 Layout(bottom, size=bottom_h),
-                Layout(footer, size=1),
             )
+            return layout, mk_h + scanner_h + bottom_h
         else:
             bottom = Layout()
             bottom.split_row(
@@ -2689,14 +2810,12 @@ class Dashboard:
                 Layout(self._log_panel(), ratio=2),
             )
             layout.split_column(
-                header,
                 Layout(self._markets_panel(mk_h), size=mk_h),
                 Layout(self._scanner_panel(), size=scanner_h),
                 Layout(self._active_trades(compact=True), size=active_h),
                 Layout(bottom, size=bottom_h),
-                Layout(footer, size=1),
             )
-        return layout
+            return layout, mk_h + scanner_h + active_h + bottom_h
 
     def _footer(self):
         e = self.engine
@@ -2779,13 +2898,15 @@ class Dashboard:
         last_key = {}
         while not self._stop:
             try:
-                # msvcrt's buffer belongs to this console, so anything in it
-                # was typed here; drain it without consulting window focus
-                # (focus detection is unreliable under ConPTY terminals).
+                # drain the console's key buffer without consulting window
+                # focus (focus detection is unreliable under ConPTY terminals).
+                # InputProvider is the seam: WindowsInputProvider reads msvcrt
+                # here; tests and other platforms can substitute a fake.
                 for _ in range(16):
-                    if not msvcrt.kbhit():
+                    ch = self._input_provider.poll()
+                    if ch is None:
                         break
-                    self._handle_key(msvcrt.getch(), last_key)
+                    self._handle_key(ch, last_key)
             except Exception as e:
                 # a dead hotkey loop looks exactly like "keys do nothing"
                 # - surface the failure in the log panel instead

@@ -430,7 +430,7 @@ def test_empty_completed_panel_ignores_realised_pnl(tmp_path):
     assert "No completed trades yet" in console.export_text()
 
 
-def test_hotkey_loop_processes_buffered_keys(monkeypatch, tmp_path):
+def test_hotkey_loop_processes_buffered_keys(tmp_path):
     """Keys in the console buffer are dispatched without a focus lookup."""
     import threading
     import trader.ui.dashboard as dash_mod
@@ -440,19 +440,15 @@ def test_hotkey_loop_processes_buffered_keys(monkeypatch, tmp_path):
     dash.console = Console(width=120, height=40, theme=build_theme("default"), record=True)
     keys = [b"p", b"s"]
 
-    class FakeMsvcrt:
+    class FakeProvider:
         @staticmethod
-        def kbhit():
-            return bool(keys)
-
-        @staticmethod
-        def getch():
-            ch = keys.pop(0)
+        def poll():
             if not keys:
                 dash._stop = True
-            return ch
+                return None
+            return keys.pop(0)
 
-    monkeypatch.setattr(dash_mod, "msvcrt", FakeMsvcrt)
+    dash._input_provider = FakeProvider()
     t = threading.Thread(target=dash._hotkey_loop)
     t.start()
     t.join(3)
@@ -485,6 +481,15 @@ def test_hotkey_loop_survives_a_lone_arrow_prefix(monkeypatch, tmp_path):
             return b"\xe0"
 
     monkeypatch.setattr(dash_mod, "msvcrt", FakeMsvcrt)
+
+    class FakeProvider:
+        @staticmethod
+        def poll():
+            if not keys:
+                return None
+            return keys[0]
+
+    dash._input_provider = FakeProvider()
     t = threading.Thread(target=dash._hotkey_loop)
     t.start()
     t.join(3)

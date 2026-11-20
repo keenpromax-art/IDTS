@@ -1,0 +1,35 @@
+[
+  {
+    "symbols": 2000,
+    "prescreen_survivors": 19,
+    "prescreen_only_s": 48.0113,
+    "prescreen_symbols_per_second": 41.7,
+    "end_to_end_s": 78.0077,
+    "end_to_end_symbols_per_second": 25.6,
+    "provider_calls": 2000,
+    "provider_failures": 0,
+    "telemetry": {
+      "symbols_requested": 2000,
+      "symbols_scanned": 19,
+      "symbols_missing_data": 0,
+      "symbols_prescreened": 1981,
+      "symbols_stale": 19,
+      "symbol_errors": 0,
+      "data_download_latency_s": 8.125,
+      "processing_latency_s": 69.878451,
+      "total_scan_duration_s": 78.003451,
+      "symbols_per_second": 25.64,
+      "provider_success": 0,
+      "provider_failure": 0,
+      "provider_failure_rate": 0.0,
+      "fallback_used": 0,
+      "fallback_rate": 0.0,
+      "quote_coverage_pct": 0.0,
+      "stale_quotes": 0,
+      "delayed_quotes": 0,
+      "signals_by_strategy": {},
+      "signals_by_market": {},
+      "timestamp": 1795133091.6615274
+    }
+  }
+]

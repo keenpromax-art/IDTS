@@ -146,6 +146,15 @@ class BacktestStats:
     expectancy_r: float = 0.0
     max_drawdown: float = 0.0
     eligible: bool = False
+    net_expectancy_r: float = 0.0
+    sharpe: float = 0.0
+    sortino: float = 0.0
+    sample_size: int = 0
+    win_rate_lower_bound: float = 0.0
+    walk_forward_score: float = 0.0
+    liquidity_quality: float = 0.5
+    data_freshness: float = 1.0
+    relative_strength: float = 0.0
 
 
 @dataclass

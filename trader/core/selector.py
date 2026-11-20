@@ -8,6 +8,10 @@ import pandas as pd
 from trader.core.models import Signal, Side, BacktestStats, Regime
 from trader.core.indicators import adx, atr, ema
 from trader.strategies.base import Strategy
+from trader.scanner.ranking import (
+    ExecutionModel, QualityRanker, RankingContext,
+    compute_performance_metrics, walk_forward_folds,
+)
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +26,9 @@ class Selector:
         self.min_win_rate = float(self.sel.get("min_win_rate", 0.35))
         self.min_signal_confidence = float(self.sel.get("min_signal_confidence", 0.55))
         self.sessions = self.sel.get("backtest_sessions", 5)
+        # scoring gates grade setups over a longer lookback than live signal
+        # generation; defaults to `backtest_sessions` when not configured
+        self.scoring_lookback_days = int(self.sel.get("scoring_lookback_days", self.sessions))
         # exponential decay half-life in cycles: expectancy half-life = HALF_LIFE cycles
         self.half_life_cycles = float(self.sel.get("expectancy_half_life", 0.0))
         # rolling weighted stats per symbol (for drift detection)
@@ -33,9 +40,20 @@ class Selector:
         self.meanrev_strats = set(self.sel.get("meanrev_strategies", []))
         self.adx_trend = self.sel.get("regime", {}).get("adx_trending_threshold", 25)
         self.atr_pct_high = self.sel.get("regime", {}).get("atr_percentile_high", 65)
-        self._cache: Dict[str, Tuple[int, Dict[str, float]]] = {}  # symbol -> (cycle, scores)
+        # symbol -> (cycle, {name: (score, BacktestStats, Regime, Signal)}, Regime)
+        self._cache: Dict[str, Tuple[int, Dict[str, Any], Regime]] = {}
         self._cycle = 0
         self._kinds: Dict[str, Any] = {}
+        self.exec_model = ExecutionModel.from_cfg(
+            self.sel.get("execution_model"),
+            slippage_bps=float((cfg.get("paper") or {}).get("slippage_bps", 5.0)))
+        self.ranker = QualityRanker(self.sel.get("ranking"))
+        wf_cfg = self.sel.get("ranking") or {}
+        self.wf_train = int(wf_cfg.get("walk_forward_train_bars", 120))
+        self.wf_test = int(wf_cfg.get("walk_forward_test_bars", 60))
+        self.wf_folds = int(wf_cfg.get("walk_forward_folds", 3))
+        self.wf_enabled = bool(wf_cfg.get("walk_forward_enabled", False))
+        self._wf_cache: Dict[tuple, float] = {}
 
     def set_strategies(self, strategies):
         """Tell the selector what each strategy is, so regime fit works."""
@@ -105,14 +123,16 @@ class Selector:
             return 0.6
         return 0.5
 
-    def _backtest_window(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _backtest_window(self, df: pd.DataFrame, lookback_days: Optional[int] = None) -> pd.DataFrame:
         """Slice the frame to the configured number of sessions.
 
         `backtest_sessions` is a count of *sessions*, not bars, so the bars
         per session are estimated from the data itself (the most common
-        number of bars sharing a date).
+        number of bars sharing a date). `lookback_days` overrides the
+        session count - scoring gates use a longer window than live signal
+        generation.
         """
-        sessions = max(1, int(self.sessions))
+        sessions = max(1, int(lookback_days if lookback_days is not None else self.sessions))
         max_bars = int(self.sel.get("backtest_max_bars", 250))
         if len(df) <= max_bars:
             return df
@@ -132,7 +152,7 @@ class Selector:
         return df.tail(want)
 
     def backtest(self, strategy: Strategy, df: pd.DataFrame, symbol: str,
-                 ctx=None) -> BacktestStats:
+                 ctx=None, lookback_days: Optional[int] = None) -> BacktestStats:
         """Replay a strategy over *past* bars to score it for this symbol.
 
         The last bar is excluded on purpose: that is the bar the live signal
@@ -148,14 +168,14 @@ class Selector:
         stats = BacktestStats(strategy=strategy.name, symbol=symbol)
         if df is None or len(df) < 40:
             return stats
-        df = self._backtest_window(df)
+        df = self._backtest_window(df, lookback_days=lookback_days)
         if len(df) < 40:
             return stats
         # drop the bar the live signal came from - grade the setup on history
         df = df.iloc[:-1]
         if len(df) < 40:
             return stats
-        slippage_bps = self.cfg.get("paper", {}).get("slippage_bps", 5) / 10000.0
+        model = self.exec_model
 
         from trader.strategies.context import Ctx
         try:
@@ -164,20 +184,17 @@ class Selector:
         except Exception:
             return stats
 
-        trades_pnl = []
-        risks = []
-        cum = 0.0
-        peak = 0.0
-        max_dd = 0.0
         i = 0
         n = len(df)
         high = df["high"].to_numpy(dtype=float)
         low = df["low"].to_numpy(dtype=float)
         close = df["close"].to_numpy(dtype=float)
+        opn = df["open"].to_numpy(dtype=float)
+        rs: list = []
+        costs_r: list = []
 
         while i < n - 1:
             ctx.set_bar(i)
-            sig = None
             try:
                 sig = strategy.generate_from(ctx)
             except Exception:
@@ -185,70 +202,69 @@ class Selector:
             if sig is None:
                 i += 1
                 continue
-            entry_raw = float(close[i])
-            if sig.side == Side.LONG:
-                entry = entry_raw * (1 + slippage_bps)
-            else:
-                entry = entry_raw * (1 - slippage_bps)
+            is_long = sig.side == Side.LONG
             stop = float(sig.stop)
             target = float(sig.target)
+            # Next-bar execution: the signal is known at bar i's close, so it
+            # can only be filled at bar i+1's open.
+            entry_idx = i + 1 if model.mode == "next_bar" else i
+            if entry_idx >= n:
+                break
+            entry_raw = float(opn[entry_idx] if model.mode == "next_bar" else close[i])
+            entry = model.entry_price(entry_raw, is_long)
             exit_price = None
+            exit_raw = None
             exit_idx = None
-            for j in range(i + 1, n):
-                hi = float(high[j])
-                lo = float(low[j])
-                if sig.side == Side.LONG:
-                    if lo <= stop:
-                        exit_price = stop * (1 - slippage_bps)
-                        exit_idx = j
-                        break
-                    if hi >= target:
-                        exit_price = target * (1 - slippage_bps)
-                        exit_idx = j
-                        break
-                else:
-                    if hi >= stop:
-                        exit_price = stop * (1 + slippage_bps)
-                        exit_idx = j
-                        break
-                    if lo <= target:
-                        exit_price = target * (1 + slippage_bps)
-                        exit_idx = j
-                        break
-            if exit_price is None:
-                exit_price = float(close[-1])
-                exit_idx = n - 1
-            if sig.side == Side.LONG:
-                pnl = exit_price - entry
-            else:
-                pnl = entry - exit_price
-            risk = abs(entry - stop)
-            if risk <= 0:
-                i += 1
-                continue
-            trades_pnl.append(pnl)
-            risks.append(risk)
-            cum += pnl
-            peak = max(peak, cum)
-            max_dd = max(max_dd, peak - cum)
-            i = exit_idx + 1 if exit_idx is not None else i + 1
 
-        stats.trades = len(trades_pnl)
-        wins = [p for p in trades_pnl if p > 0]
-        losses = [p for p in trades_pnl if p <= 0]
-        stats.wins = len(wins)
-        stats.losses = len(losses)
-        stats.win_rate = (len(wins) / len(trades_pnl)) if trades_pnl else 0.0
-        gross_win = sum(wins)
-        gross_loss = abs(sum(losses))
-        stats.profit_factor = (gross_win / gross_loss) if gross_loss > 0 else (2.0 if gross_win > 0 else 0.0)
-        # expectancy in R multiples: profit normalised by the risk taken
-        if trades_pnl and risks:
-            rs = [p / r for p, r in zip(trades_pnl, risks)]
-            stats.expectancy_r = sum(rs) / len(rs)
-        else:
-            stats.expectancy_r = 0.0
-        stats.max_drawdown = float(max_dd)
+            if model.mode == "next_bar" and (
+                    (is_long and entry_raw <= stop) or (not is_long and entry_raw >= stop)):
+                # The next open already breached the plan's stop: the setup is
+                # invalidated. Do not invent a fill at a price that no longer
+                # satisfies the risk defined by the signal.
+                i = entry_idx + 1
+                continue
+            else:
+                for j in range(entry_idx, n):
+                    hi, lo = float(high[j]), float(low[j])
+                    if is_long:
+                        if lo <= stop:
+                            exit_raw, exit_idx = stop, j
+                        elif hi >= target:
+                            exit_raw, exit_idx = target, j
+                    else:
+                        if hi >= stop:
+                            exit_raw, exit_idx = stop, j
+                        elif lo <= target:
+                            exit_raw, exit_idx = target, j
+                    if exit_idx is not None:
+                        break
+                if exit_idx is None:
+                    exit_raw, exit_idx = float(close[-1]), n - 1
+                exit_price = model.exit_price(exit_raw, is_long)
+
+            risk = abs(entry - stop)
+            if risk <= 1e-12:
+                i = max(i + 1, entry_idx)
+                continue
+            pnl = (exit_price - entry) if is_long else (entry - exit_price)
+            rs.append(pnl / risk)
+            cost = abs(entry - entry_raw) + abs(exit_price - exit_raw)
+            costs_r.append(cost / risk)
+            i = max(entry_idx + 1, exit_idx + 1)
+
+        metrics = compute_performance_metrics(rs, costs_r)
+        stats.trades = metrics.trades
+        stats.wins = sum(1 for r in rs if r > 0)
+        stats.losses = stats.trades - stats.wins
+        stats.win_rate = metrics.win_rate
+        stats.profit_factor = metrics.profit_factor
+        stats.expectancy_r = metrics.expectancy_r
+        stats.net_expectancy_r = metrics.net_expectancy_r
+        stats.sharpe = metrics.sharpe
+        stats.sortino = metrics.sortino
+        stats.max_drawdown = metrics.max_drawdown
+        stats.sample_size = metrics.sample_size
+        stats.win_rate_lower_bound = metrics.win_rate_lower_bound
         stats.eligible = self._is_eligible(stats)
         return stats
 
@@ -270,7 +286,8 @@ class Selector:
             return False
         return True
 
-    def score(self, stats: BacktestStats, regime: Regime, confidence: float) -> float:
+    def score(self, stats: BacktestStats, regime: Regime, confidence: float,
+              context: Optional[RankingContext] = None) -> float:
         """Weighted score in 0..1.
 
         Expectancy is mapped so that *zero* expectancy is worth only 0.35, not
@@ -296,69 +313,122 @@ class Selector:
             w.get("regime_fit", 0.15) * rf +
             w.get("confidence", 0.15) * conf
         )
+        if context is not None and self.ranker.enabled:
+            enhanced = self.ranker.enhanced_score(stats, rf, conf, context)
+            blend = max(0.0, min(1.0, self.ranker.blend))
+            total = (1.0 - blend) * total + blend * enhanced
         return float(total)
 
+    def walk_forward(self, strategy: Strategy, df: pd.DataFrame, symbol: str) -> float:
+        """Chronological out-of-sample expectancy across non-overlapping folds.
+
+        No parameters are fitted here, so this is a stability check, not an
+        optimisation: the same strategy rules are replayed on later bars.
+        """
+        folds = walk_forward_folds(len(df), self.wf_train, self.wf_test, self.wf_folds)
+        scores = []
+        for _, _, ts, te in folds:
+            window = df.iloc[ts:te]
+            st = self.backtest(strategy, window, symbol)
+            if st.trades >= max(3, self.min_trades // 3):
+                scores.append(st.expectancy_r)
+        return float(np.mean(scores)) if scores else 0.0
+
+    def _grade(self, symbol: str, df: pd.DataFrame, entries, scores: Dict[str, Any],
+               regime: Regime, context: Optional[Dict[str, Any]] = None):
+        """Backtest and score a set of ``(strategy, signal)`` pairs.
+
+        Historical grading depends only on past bars and the strategy's own
+        declaration - never on whether another strategy fired in this candle.
+        """
+        if not entries:
+            return
+        try:
+            from trader.strategies.context import Ctx
+            window = self._backtest_window(df, lookback_days=self.scoring_lookback_days)
+            bt_ctx = Ctx(window, symbol, "")
+        except Exception:
+            bt_ctx = None
+        context = context or {}
+        for st, sig in entries:
+            bs = self.backtest(st, df, symbol, ctx=bt_ctx,
+                               lookback_days=self.scoring_lookback_days)
+            wf = 0.0
+            if self.ranker.enabled and self.wf_enabled:
+                key = (symbol, st.name)
+                if key not in self._wf_cache:
+                    self._wf_cache[key] = self.walk_forward(st, df, symbol)
+                wf = self._wf_cache[key]
+            rctx = RankingContext(
+                relative_strength=float(context.get("relative_strength", 0.0)),
+                liquidity_quality=float(context.get("liquidity_quality", 0.5)),
+                data_freshness=float(context.get("data_freshness", 1.0)),
+                walk_forward_score=wf,
+            )
+            bs.walk_forward_score = wf
+            bs.liquidity_quality = rctx.liquidity_quality
+            bs.data_freshness = rctx.data_freshness
+            bs.relative_strength = rctx.relative_strength
+            sc = self.score(bs, regime, float(sig.confidence), context=rctx)
+            scores[st.name] = (sc, bs, regime, sig)
+
     def evaluate(self, symbol: str, df: pd.DataFrame, strategies: List[Strategy],
-                 live_signals: Dict[str, Optional[Signal]], cycle: int) -> Optional[Tuple[str, float, BacktestStats, Regime, Optional[Signal]]]:
-        # cache check
+                 live_signals: Dict[str, Optional[Signal]], cycle: int,
+                 context: Optional[Dict[str, Any]] = None) -> Optional[Tuple[str, float, BacktestStats, Regime, Optional[Signal]]]:
         cached = self._cache.get(symbol)
-        refresh_every = self.sel.get("score_refresh_cycles", 5)
-        if cached and (cycle - cached[0]) < refresh_every:
-            scores = cached[1]
-            regime = cached[2]
-        else:
+        refresh_every = max(1, int(self.sel.get("score_refresh_cycles", 5)))
+        max_bt = int(self.sel.get("max_backtest_setups", 6))
+        fresh = cached is None or (cycle - cached[0]) >= refresh_every
+
+        if fresh:
             regime = self.detect_regime(df)
-            scores = {}
-            # Only the strongest live signals are worth a backtest. Grading
-            # every setup that happens to fire is what made a scan take
-            # 40 seconds a market.
-            max_bt = int(self.sel.get("max_backtest_setups", 6))
-            live = [(st, live_signals.get(st.name)) for st in strategies
+            scores: Dict[str, Any] = {}
+            live = [(st, live_signals[st.name]) for st in strategies
                     if live_signals.get(st.name) is not None]
             live.sort(key=lambda pair: -pair[1].confidence)
-            if max_bt > 0:
-                live = live[:max_bt]
-            graded = {st.name for st, _ in live}
-            # one context for the whole backtest window, shared by every
-            # setup that is graded
-            bt_ctx = None
-            if graded:
-                try:
-                    from trader.strategies.context import Ctx
-                    window = self._backtest_window(df)
-                    bt_ctx = Ctx(window, symbol, "")
-                except Exception:
-                    bt_ctx = None
+            graded = live[:max_bt] if max_bt > 0 else live
+            for st in strategies:
+                scores[st.name] = (0.0, BacktestStats(strategy=st.name, symbol=symbol), regime, None)
+            self._grade(symbol, df, graded, scores, regime, context)
+            self._cache[symbol] = (cycle, scores, regime)
+        else:
+            regime = cached[2]
+            scores = dict(cached[1])
+            # A strategy can start firing on a cached cycle. Grading it only
+            # at the next refresh made a valid, newly appearing signal vanish
+            # for up to score_refresh_cycles - 1 cycles. Grade it now.
+            pending = []
             for st in strategies:
                 sig = live_signals.get(st.name)
-                if sig is None or st.name not in graded:
-                    bs = BacktestStats(strategy=st.name, symbol=symbol)
-                    bs.eligible = False
-                    scores[st.name] = (0.0, bs, regime, None)
+                if sig is None:
                     continue
-                bs = self.backtest(st, df, symbol, ctx=bt_ctx)
-                conf = sig.confidence if sig is not None else 0.0
-                sc = self.score(bs, regime, conf)
-                scores[st.name] = (sc, bs, regime, sig)
-            self._cache[symbol] = (cycle, scores, regime)
-        # retrieve
-        cached = self._cache.get(symbol)
-        scores = cached[1]
-        regime = cached[2]
-        # candidates: strategies signalling now
+                entry = scores.get(st.name)
+                if entry is None or not entry[1].eligible or entry[3] is None:
+                    pending.append((st, sig))
+                else:
+                    # keep the cached historical score, but attach the current
+                    # signal so the confidence gate uses this candle's data
+                    scores[st.name] = (entry[0], entry[1], entry[2], sig)
+            pending.sort(key=lambda pair: -pair[1].confidence)
+            if max_bt > 0:
+                pending = pending[:max_bt]
+            if pending:
+                self._grade(symbol, df, pending, scores, regime, context)
+                self._cache[symbol] = (cycle, scores, regime)
+
         candidates = []
         for name, val in scores.items():
-            sc, bs, reg, sig = val
+            sc, bs, _reg, _sig = val
             if not bs.eligible:
                 continue
-            if live_signals.get(name) is None:
+            sig = live_signals.get(name)
+            if sig is None:
                 continue
             if sc < self.min_score:
                 continue
-            # a weak live signal is not worth a good historical score
-            if sig is not None and sig.confidence < self.min_signal_confidence:
+            if sig.confidence < self.min_signal_confidence:
                 continue
-            candidates.append((name, sc, bs, regime, live_signals.get(name)))
+            candidates.append((name, sc, bs, regime, sig))
         if not candidates:
             return None
         candidates.sort(key=lambda x: x[1], reverse=True)

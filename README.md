@@ -12,14 +12,14 @@ A terminal-based intraday trading system for 9 markets (India, Japan, Korea, Hon
   - **0.15** weight on win rate
   - **0.15** weight on regime fit
   - **0.10** weight on confidence
-  - **0.75%** risk per trade
-  - **1.5%** max daily loss
-  - **20%** max position size
-  - **30 minutes** cooldown after loss
-  - **first 5 min** no-entry window
-  - **last 30 min** no-entry window
-  - **12 minutes** before close square-off
-  - **1.5R** minimum risk-reward
+  - **0.50%** risk per trade
+  - **1.0%** max daily loss
+  - **15%** max position size
+  - **45 minutes** cooldown after loss
+  - **first 10 min** no-entry window
+  - **last 45 min** no-entry window
+  - **20 minutes** before close square-off
+  - **2.0R** minimum risk-reward
 - **Paper trading by default** with seamless transition to live mode
 - **Rich terminal dashboard** with real-time metrics and analytics
 - **Live quotes** enabled with price refresh
@@ -49,14 +49,14 @@ All settings in `trader/config/settings.yaml`:
   - **0.15** weight on win rate
   - **0.15** weight on regime fit
   - **0.10** weight on confidence
-  - **0.75%** risk per trade
-  - **1.5%** max daily loss
-  - **20%** max position size
-  - **30 minutes** cooldown after loss
-  - **first 5 min** no-entry window
-  - **last 30 min** no-entry window
-  - **12 minutes** before close square-off
-  - **1.5R** minimum risk-reward
+  - **0.50%** risk per trade
+  - **1.0%** max daily loss
+  - **15%** max position size
+  - **45 minutes** cooldown after loss
+  - **first 10 min** no-entry window
+  - **last 45 min** no-entry window
+  - **20 minutes** before close square-off
+  - **2.0R** minimum risk-reward
 - Strategy enable/disable lists
 - Rule parameters and thresholds
 - Live trading confirmation required
@@ -68,6 +68,13 @@ Three independent gates required:
 3. Interactive confirmation phrase at startup
 
 Any one missing ⇒ stays in paper mode.
+
+## Paper fill model
+Paper orders fill at the last seen price plus a flat slippage bps model
+(configured via `paper.slippage_bps`, default 5 bps per side). Buys fill
+slightly above the quote, sells slightly below. There is no market-impact
+model for illiquid mid-caps, and fills assume last-price liquidity — paper
+results do not guarantee live results.
 
 ## Research & Testing
 - **129 tests** covering indicators, strategies, rules, selector, risk, currency, dashboard
@@ -103,6 +110,13 @@ Paper results do not guarantee live results. This is not financial advice. Tradi
 - `python -m trader --mode paper` - start in paper mode
 - `python -m trader demo` - demo mode
 - `python -m trader report` - generate trade report
+- `streamlit run streamlit_app.py` - browser dashboard (monitor / positions / analytics / diagnostics / report / log)
+  - `IDTS_DEMO=1 streamlit run streamlit_app.py` - synthetic demo data, no network, temp DB
+  - `IDTS_DB_PATH=...` - override the database path
+  - In paper mode the engine arms normally; in `IDTS_MODE=live` it requires
+    `live_trading_confirmed: true` in settings.yaml plus the confirmation
+    phrase in the app — same gates as the terminal. Like the terminal,
+    startup may square off positions in markets whose session is over.
 
 ## Market Sessions
 - India: open 09:15, close 15:30, INR, .NS

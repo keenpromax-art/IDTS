@@ -98,6 +98,36 @@ watchlists:
   - DRX.AX
   - IAG.AX
   - MLG.AX
+  - MP1.AX
+  - NST.AX
+  - RMD.AX
+  - DHG.AX
+  - GOR.AX
+  - LYC.AX
+  - PME.AX
+  - IMP.AX
+  - SVW.AX
+  - NUF.AX
+  - BEN.AX
+  - CGF.AX
+  - CSR.AX
+  - DMP.AX
+  - FBU.AX
+  - GMA.AX
+  - ING.AX
+  - JHX.AX
+  - LLC.AX
+  - NEC.AX
+  - ORA.AX
+  - PCA.AX
+  - QUB.AX
+  - SYA.AX
+  - TEK.AX
+  - VUK.AX
+  - WAF.AX
+  - WDS.AX
+  - ID8.AX
+  - JLG.AX
   Japan:
   - 7203.T
   - 6758.T
@@ -199,6 +229,22 @@ watchlists:
   - 6273.T
   - 6305.T
   - 6361.T
+  - 9983.T
+  - 8309.T
+  - 7201.T
+  - 9433.T
+  - 8308.T
+  - 1605.T
+  - 1721.T
+  - 1803.T
+  - 1928.T
+  - 2002.T
+  - 2501.T
+  - 2503.T
+  - 3401.T
+  - 5201.T
+  - 5332.T
+  - 6178.T
   Korea:
   - 005930.KS
   - 000660.KS
@@ -299,6 +345,99 @@ watchlists:
   - 002840.KS
   - 002870.KS
   - 002880.KS
+  - 006400.KS
+  - 006800.KS
+  - 006980.KS
+  - 007980.KS
+  - 008220.KS
+  - 008470.KS
+  - 008770.KS
+  - 008930.KS
+  - 009540.KS
+  - 009840.KS
+  - 010130.KS
+  - 010140.KS
+  - 010950.KS
+  - 011070.KS
+  - 011170.KS
+  - 015760.KS
+  - 016170.KS
+  - 016360.KS
+  - 018260.KS
+  - 018880.KS
+  - 020150.KS
+  - 020500.KS
+  - 020740.KS
+  - 021080.KS
+  - 021240.KS
+  - 021720.KS
+  - 022300.KS
+  - 022550.KS
+  - 023160.KS
+  - 023200.KS
+  - 023290.KS
+  - 023410.KS
+  - 023430.KS
+  - 023530.KS
+  - 023590.KS
+  - 023620.KS
+  - 023810.KS
+  - 023840.KS
+  - 023870.KS
+  - 023920.KS
+  - 023930.KS
+  - 024000.KS
+  - 024110.KS
+  - 024200.KS
+  - 024230.KS
+  - 024280.KS
+  - 024290.KS
+  - 024500.KS
+  - 024540.KS
+  - 024560.KS
+  - 024580.KS
+  - 024590.KS
+  - 024600.KS
+  - 024610.KS
+  - 024620.KS
+  - 024630.KS
+  - 024640.KS
+  - 024650.KS
+  - 024660.KS
+  - 024670.KS
+  - 024680.KS
+  - 024690.KS
+  - 024700.KS
+  - 024710.KS
+  - 024720.KS
+  - 024730.KS
+  - 024740.KS
+  - 024750.KS
+  - 024760.KS
+  - 024770.KS
+  - 024780.KS
+  - 024790.KS
+  - 024800.KS
+  - 024810.KS
+  - 024820.KS
+  - 024830.KS
+  - 024840.KS
+  - 024850.KS
+  - 024860.KS
+  - 024870.KS
+  - 024880.KS
+  - 024890.KS
+  - 024900.KS
+  - 024910.KS
+  - 024920.KS
+  - 024930.KS
+  - 024940.KS
+  - 024950.KS
+  - 024960.KS
+  - 024970.KS
+  - 024980.KS
+  - 024990.KS
+  - 025000.KS
   HongKong:
   - 0001.HK
   - 0002.HK
@@ -366,7 +505,6 @@ watchlists:
   - 9888.HK
   - 9899.HK
   - 9903.HK
-  - 9988.HK
   - 9992.HK
   - 0992.HK
   - 9618.HK
@@ -400,6 +538,18 @@ watchlists:
   - 8226.HK
   - 8267.HK
   - 0788.HK
+  - 1108.HK
+  - 1918.HK
+  - 2319.HK
+  - 2600.HK
+  - 3888.HK
+  - 0939.HK
+  - 3968.HK
+  - 1336.HK
+  - 0914.HK
+  - 1177.HK
+  - 0011.HK
+  - 0522.HK
   India:
   - BHARTIARTL.NS
   - HDFCBANK.NS
@@ -610,6 +760,58 @@ watchlists:
   - SHREECEM.NS
   - COLPAL.NS
   - PETRONET.NS
+  - LTIM.NS
+  - TATAMOTORS.NS
+  - UBL.NS
+  - BERGEPAINT.NS
+  - IGL.NS
+  - INFO EDGE.NS
+  - PVR.NS
+  - RAMCOCEM.NS
+  - TORNTPOWER.NS
+  - MCDOWELL-N.NS
+  - RITES.NS
+  - IRCON.NS
+  - SJVN.NS
+  - NLCINDIA.NS
+  - GMRINFRA.NS
+  - ADANITRANS.NS
+  - KPI GREEN.NS
+  - WEBELSOLAR.NS
+  - KPI ENERGY.NS
+  - WASSAN.NS
+  - SURYODAY.NS
+  - UJJIVAN.NS
+  - EQUITAS.NS
+  - CSB BANK.NS
+  - KARUR VYSYA.NS
+  - DCB BANK.NS
+  - YES BANK.NS
+  - AU SMALL FIN.NS
+  - UJJIVAN SFB.NS
+  - EQUITAS SFB.NS
+  - SURYODAY SFB.NS
+  - CYIENT.NS
+  - MAHINDRA.NS
+  - ESCORTS.NS
+  - PIRAMAL.NS
+  - CADILA.NS
+  - GLOBALHEALTH.NS
+  - KIMS.NS
+  - METROPOLIS.NS
+  - THYROCARE.NS
+  - DR LAL.NS
+  - AGS.NS
+  - KRSNA.NS
+  - YATHARTH.NS
+  - GPT.NS
+  - GRINFRA.NS
+  - HG INFRA.NS
+  - PSP PROJECTS.NS
+  - AHLUWALIA.NS
+  - KNRCI.NS
+  - ASHOKA.NS
+  - GVK.NS
   Brazil:
   - PETR4.SA
   - VALE3.SA
@@ -652,6 +854,99 @@ watchlists:
   - USIM5.SA
   - SAPR3.SA
   - AMER3.SA
+  - GGBR4.SA
+  - NATU3.SA
+  - SUZB3.SA
+  - FLRY3.SA
+  - SSA3.SA
+  - VIVT3.SA
+  - TIMS3.SA
+  - BIDI3.SA
+  - CVCB3.SA
+  - YDUQ3.SA
+  - ELET3.SA
+  - ELET6.SA
+  - CMIG3.SA
+  - CPLE3.SA
+  - CPLE6.SA
+  - ENGI4.SA
+  - ENMT3.SA
+  - GEPA4.SA
+  - IGUA3.SA
+  - ISAE4.SA
+  - LOGG3.SA
+  - ROMI3.SA
+  - SANB4.SA
+  - TRPL3.SA
+  - TRPL4.SA
+  - TUPY3.SA
+  - UGPA3.SA
+  - WIZC3.SA
+  - ALLD3.SA
+  - ALPK3.SA
+  - ARZZ3.SA
+  - BHIA3.SA
+  - BLAU3.SA
+  - BRFS3.SA
+  - BRKM5.SA
+  - BRML3.SA
+  - CCRO3.SA
+  - CIEL3.SA
+  - CLOG3.SA
+  - CMIN3.SA
+  - COGN3.SA
+  - CRFB3.SA
+  - CSED3.SA
+  - CXSE3.SA
+  - DIRR3.SA
+  - DMMM3.SA
+  - ECOR3.SA
+  - ELEK3.SA
+  - EMBR3.SA
+  - EZTC3.SA
+  - FRAS3.SA
+  - FRIO3.SA
+  - GGBR3.SA
+  - GOAU3.SA
+  - GOLL4.SA
+  - GRND3.SA
+  - GUAR3.SA
+  - HBOR3.SA
+  - HGTX3.SA
+  - HYPE3.SA
+  - IGTI3.SA
+  - ILHI3.SA
+  - INCI3.SA
+  - INFR3.SA
+  - INTB3.SA
+  - IRBR3.SA
+  - ITSA3.SA
+  - ITUB3.SA
+  - JBSS3.SA
+  - KLBN3.SA
+  - LAME4.SA
+  - LWSA3.SA
+  - MDIA3.SA
+  - MGEL3.SA
+  - MRFG3.SA
+  - MULT3.SA
+  - NTCO3.SA
+  - ODPV3.SA
+  - OIBR3.SA
+  - OIBR4.SA
+  - PRIO3.SA
+  - PRNR3.SA
+  - RDNI3.SA
+  - SEQL3.SA
+  - SGPS3.SA
+  - SLCE3.SA
+  - SOMA3.SA
+  - TGMA3.SA
+  - TIM P3.SA
+  - TSLA3.SA
+  - UNIP3.SA
+  - USIM3.SA
+  - VLID3.SA
   Europe:
   - SHEL.L
   - AZN.L
@@ -744,6 +1039,100 @@ watchlists:
   - JMAT.L
   - PAG.L
   - UTG.L
+  - ADM.AS
+  - ADYEN.AS
+  - AKZA.AS
+  - ASM.AS
+  - ASML.AS
+  - BAS.AS
+  - DSM.AS
+  - HEIA.AS
+  - INGA.AS
+  - KPN.AS
+  - PHIA.AS
+  - PRX.AS
+  - RAND.AS
+  - RSI.AS
+  - URW.AS
+  - AI.PA
+  - AIR.PA
+  - ALO.PA
+  - CA.PA
+  - ACA.PA
+  - BN.PA
+  - CAP.PA
+  - DG.PA
+  - EN.PA
+  - EL.PA
+  - RI.PA
+  - KER.PA
+  - OR.PA
+  - LR.PA
+  - MC.PA
+  - ML.PA
+  - ORA.PA
+  - PUB.PA
+  - RNO.PA
+  - SAF.PA
+  - SGO.PA
+  - SU.PA
+  - SW.PA
+  - TTE.PA
+  - HO.PA
+  - VIE.PA
+  - VIV.PA
+  - WAC.PA
+  - 1COV.DE
+  - ADS.DE
+  - ALV.DE
+  - BAS.DE
+  - BAYN.DE
+  - BEI.DE
+  - BMW.DE
+  - BNR.DE
+  - CON.DE
+  - COV.DE
+  - DAX.DE
+  - DPW.DE
+  - DTE.DE
+  - EON.DE
+  - FRE.DE
+  - FME.DE
+  - HEN3.DE
+  - IFX.DE
+  - LHA.DE
+  - LIN.DE
+  - MRK.DE
+  - MTX.DE
+  - MUV2.DE
+  - QIA.DE
+  - RWE.DE
+  - SAP.DE
+  - SIE.DE
+  - TKA.DE
+  - VNA.DE
+  - ZAL.DE
+  - ENEL.MI
+  - ENI.MI
+  - UCG.MI
+  - ISP.MI
+  - EXR.MI
+  - STM.MI
+  - TIT.MI
+  - PRY.MI
+  - NRG.MI
+  - REC.MI
+  - CNHI.MI
+  - FERR.MI
+  - MB.MI
+  - PIRC.MI
+  - MONC.MI
+  - AMP.MI
+  - LUX.MI
+  - DIO.MI
+  - EDN.MI
+  - IG.MI
+  - IMA.MI
   USA:
   - AAPL
   - MSFT
@@ -845,6 +1234,105 @@ watchlists:
   - AIG
   - HCA
   - MDT
+  - AMD
+  - CRM
+  - NOW
+  - PLTR
+  - AMAT
+  - MRNA
+  - AXON
+  - CRWD
+  - ARM
+  - COIN
+  - MSTR
+  - NET
+  - SNOW
+  - DDOG
+  - ZS
+  - FTNT
+  - ORLY
+  - AZO
+  - CARR
+  - TT
+  - OTIS
+  - DHI
+  - NVR
+  - LEN
+  - PHM
+  - TOL
+  - KBH
+  - MRVL
+  - 'ON'
+  - SWKS
+  - QORV
+  - ALGM
+  - ONTO
+  - MPWR
+  - ANET
+  - CDNS
+  - SNPS
+  - ANSS
+  - KEYS
+  - TEL
+  - JKHY
+  - ENTG
+  - FLT
+  - TYL
+  - FAST
+  - PAYX
+  - PAYC
+  - WORK
+  - SHOP
+  - SQ
+  - PYPL
+  - AXP
+  - DFS
+  - COF
+  - AJG
+  - MMC
+  - MAR
+  - HLT
+  - H
+  - IHG
+  - HOT
+  - LVS
+  - MGM
+  - WYNN
+  - CCL
+  - RCL
+  - NCLH
+  - DAL
+  - UAL
+  - AAL
+  - LUV
+  - JBLU
+  - ALK
+  - SAVE
+  - JET
+  - AER
+  - GEC
+  - HEI
+  - COR
+  - NOC
+  - BA
+  - GD
+  - LHX
+  - TDY
+  - HWM
+  - CPT
+  - VTRS
+  - PFE
+  - LLY
+  - IDXX
+  - ANTM
+  - UHS
+  - THC
+  - CYH
+  - ENHC
+  - SEM
+  - CHE
+  - MOH
+  - QLYS
   Crypto:
   - BTC-USD
   - ETH-USD
@@ -891,3 +1379,38 @@ watchlists:
   - WIF-USD
   - BONK-USD
   - FET-USD
+  - RENDER-USD
+  - TAO-USD
+  - BEAM-USD
+  - IMX-USD
+  - FLOW-USD
+  - STX-USD
+  - ETC-USD
+  - XTZ-USD
+  - XMR-USD
+  - EGLD-USD
+  - THETA-USD
+  - KLAY-USD
+  - CRO-USD
+  - FTM-USD
+  - ONE-USD
+  - KAVA-USD
+  - SCRT-USD
+  - OSMO-USD
+  - JUNO-USD
+  - STARS-USD
+  - DYDX-USD
+  - GMX-USD
+  - COMP-USD
+  - BAL-USD
+  - SUSHI-USD
+  - YFI-USD
+  - UMA-USD
+  - LRC-USD
+  - OCEAN-USD
+  - NU-USD
+  - ANKR-USD
+  - REN-USD
+  - CTSI-USD
+  - AGIX-USD
+  - NMR-USD

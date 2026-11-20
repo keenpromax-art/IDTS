@@ -39,6 +39,13 @@ class PaperBroker:
         self.orders: List[Order] = []
 
     def _slip(self, price: float, side: Side, is_buy: bool) -> float:
+        """Apply a flat slippage model: fill is worse than the quoted price.
+
+        Buys fill at price * (1 + bps), sells at price * (1 - bps). This is a
+        liquidity/impact proxy only - there is no market-impact curve for
+        illiquid mid-caps, and fills assume last-price liquidity. Paper results
+        do not guarantee live results.
+        """
         bps = self.slippage_bps / 10000.0
         if is_buy:
             return price * (1 + bps)

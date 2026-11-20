@@ -148,7 +148,7 @@ class Portfolio:
         self.realized_pnl[pos.market] = self.realized_pnl.get(pos.market, 0) + pnl
         # update capital
         self.capital[pos.market] = self.capital.get(pos.market, 0) + pnl
-        self.risk.record_trade_result(pos.symbol, pnl)
+        self.risk.record_trade_result(pos.symbol, pos.market, pnl, trade.closed_at)
         return trade
 
     def fx_rate(self, market: str) -> float:

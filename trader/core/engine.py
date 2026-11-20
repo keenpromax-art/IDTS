@@ -4,6 +4,7 @@ import logging
 import threading
 import time
 import uuid
+from concurrent.futures import as_completed, ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 import pandas as pd
@@ -19,17 +20,27 @@ from trader.brokers.angel_broker import AngelBroker
 from trader.strategies import ALL_STRATEGIES, ALL_RULES
 from trader.core.storage import Storage
 from trader.core.prices import PriceTicker
+from trader.scanner.candles import (
+    completed_candles, interval_seconds, resolve_execution_price, normalize_candles,
+)
+from trader.scanner.prescreen import PreScreener
+from trader.scanner.timeframes import MultiTimeframeAnalyzer
+from trader.scanner.providers import (
+    MarketDataGateway, YahooQuoteProvider, AngelStreamingQuoteProvider,
+)
+from trader.scanner.telemetry import TelemetryCollector
 
 log = logging.getLogger(__name__)
 
 
-def drop_unfinished(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return df
-    # assume last bar may be in-progress; drop it
-    if len(df) > 1:
-        return df.iloc[:-1].copy()
-    return df
+def drop_unfinished(df: pd.DataFrame, interval: str = "5m", now=None) -> pd.DataFrame:
+    """Drop the last bar only when its timestamp proves it is still forming.
+
+    Kept under the original name for backward compatibility. The old
+    unconditional ``iloc[:-1]`` discarded a completed bar and generated
+    signals one bar late.
+    """
+    return completed_candles(df, interval, now=now)
 
 
 class Engine:
@@ -67,7 +78,7 @@ class Engine:
             (cfg.get("risk", {}) or {}).get("close_on_market_closed", True))
         self.providers: Dict[str, Any] = {}
         for m in markets_cfg:
-            self.providers[m] = build_provider(m)
+            self.providers[m] = build_provider(m, cfg)
         # broker
         if mode == "live" and live_confirmed:
             from trader.data.angel_provider import AngelProvider
@@ -98,6 +109,8 @@ class Engine:
         self.scan_market: str = ""
         # read-only scan telemetry for the dashboard's analytics/diagnostics
         self.last_cycle_stats: Dict[str, int] = {}
+        self.telemetry = TelemetryCollector()
+        self.last_telemetry: Dict[str, Any] = {}
         self.last_skipped: Dict[str, int] = {}
         self.skip_counts: Dict[str, int] = {}
         self._opened_cycle: int = 0
@@ -120,6 +133,31 @@ class Engine:
         self._skipped: Dict[str, int] = {}
         self.next_scan_at: float = 0.0
         self.latest_prices: Dict[str, float] = {}
+        dcfg = cfg.get("data", {}) or {}
+        self.max_quote_age_seconds = float(dcfg.get("max_quote_age_seconds", 30.0))
+        self.max_signal_deviation_pct = float(dcfg.get("max_signal_quote_deviation_pct", 1.0))
+        self.max_candle_age_bars = float(dcfg.get("max_candle_age_bars", 2.0))
+        # Optional pre-screen. Disabled by default: no behaviour change unless
+        # thresholds are configured for a market.
+        self.prescreener = PreScreener(dcfg.get("prescreen") or {})
+        self.mtf = MultiTimeframeAnalyzer(dcfg.get("mtf") or {})
+        ranking_cfg = dcfg.get("ranking") or {}
+        self.liq_min_tv = float(ranking_cfg.get("liquidity_min_traded_value", 100000))
+        self.liq_max_tv = float(ranking_cfg.get("liquidity_max_traded_value", 10000000))
+        self.mtf_fetch_missing = bool((dcfg.get("mtf") or {}).get("fetch_missing", False))
+        # Optional per-(market, symbol) timeframe frames supplied by the caller
+        self.mtf_frames: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        # Benchmark frames keyed by market, populated by the caller when
+        # relative-strength screening is required. Never fetched implicitly.
+        self.benchmark_candles: Dict[str, Any] = {}
+        # dedup key: (symbol, strategy, direction, completed-candle timestamp)
+        self._seen_signals: set = set()
+        # Optional unified market-data gateways (candles + timestamped quotes).
+        # Off by default so offline tests and paper mode never open a feed.
+        self.gateways: Dict[str, MarketDataGateway] = {}
+        self.stream_handles: Dict[str, Any] = {}
+        if dcfg.get("gateway_enabled", False):
+            self._build_gateways(dcfg)
         # rolling per-symbol price history for the dashboard's detail view
         self.price_history: Dict[str, Any] = {}
         self._price_hist_len = 180
@@ -317,6 +355,89 @@ class Engine:
         for cand in ranked:
             self._open_candidate(market, cand)
 
+    @staticmethod
+    def _angel_from(provider):
+        """Find an Angel provider inside a validated/fallback provider stack."""
+        node = provider
+        for _ in range(4):
+            if node is None:
+                return None
+            if getattr(node, "name", "") == "angel":
+                return node
+            node = (getattr(node, "provider", None) or getattr(node, "primary", None)
+                    or getattr(node, "fallback", None))
+        return None
+
+    def _build_gateways(self, dcfg: dict):
+        for market, prov in self.providers.items():
+            angel = self._angel_from(prov) if market == "India" else None
+            if angel is not None:
+                qp = AngelStreamingQuoteProvider(angel, max_workers=self.ticker.max_workers)
+            else:
+                qp = YahooQuoteProvider(max_workers=self.ticker.max_workers)
+            self.gateways[market] = MarketDataGateway(
+                market, prov, qp,
+                max_workers=int(dcfg.get("max_workers", 8)),
+                rate_limit_seconds=float(dcfg.get("rate_limit_seconds", 0.0)))
+
+    def start_streaming_quotes(self, interval_seconds: float = 1.0):
+        """Start Angel websocket quotes where supported; poll elsewhere.
+
+        Returns the set of markets with an active stream. Streaming is opt-in
+        (``data.gateway_enabled`` + ``data.streaming_enabled``).
+        """
+        if not self.gateways:
+            return set()
+        for market, gw in self.gateways.items():
+            if market in self.stream_handles:
+                continue
+            symbols = [s for s in self.watchlists.get(market, [])]
+            if not symbols:
+                continue
+
+            def on_quote(q, m=market):
+                with self.lock:
+                    self.latest_prices[q.symbol] = q.price
+
+            handle = gw.stream_quotes(symbols, on_quote, interval_seconds)
+            if handle is not None:
+                handle.start()
+                self.stream_handles[market] = handle
+        return set(self.stream_handles)
+
+    def stop_streaming_quotes(self):
+        for handle in self.stream_handles.values():
+            try:
+                handle.stop()
+            except Exception:
+                pass
+        self.stream_handles.clear()
+
+    def _execution_quote(self, symbol: str, signal_price: float, market: Optional[str] = None):
+        """Resolve the executable price from a fresh quote or the closed bar.
+
+        Signal prices come from the last *completed* candle. An executable
+        price comes either from a fresh live quote or, when none is available,
+        from that same completed candle. Both are checked against the signal
+        price so a gapped market can never be filled against a stale plan.
+        """
+        live = None
+        live_ts = None
+        if self.live_quotes:
+            gw = self.gateways.get(market) if market else None
+            gq = gw.get_quote(symbol) if gw is not None else None
+            if gq is not None and gq.age_seconds() <= self.max_quote_age_seconds:
+                live, live_ts = gq.price, gq.ts
+            else:
+                q = self.ticker.quote(symbol)
+                if q is not None:
+                    live, live_ts = q[0], datetime.fromtimestamp(q[1], tz=timezone.utc)
+        return resolve_execution_price(
+            signal_price, live_price=live, live_ts=live_ts,
+            max_quote_age_seconds=self.max_quote_age_seconds,
+            max_deviation_pct=self.max_signal_deviation_pct,
+        )
+
     def _open_candidate(self, market: str, cand: dict):
         """Size, risk-check and open one candidate position."""
         best_sig = cand.get("sig")
@@ -328,10 +449,23 @@ class Engine:
         best_label = cand["label"]
         best_score = cand["score"]
         regime = cand["regime"]
+        stale = bool(cand.get("stale", False))
+        # A signal derived from a stale or still-forming candle is never a
+        # new trade, regardless of how good its historical score looks.
+        if stale:
+            self._skipped["stale data"] = self._skipped.get("stale data", 0) + 1
+            return
+        # Deduplicate on the candle the signal was generated from, not wall
+        # clock: re-scanning the same bar in the next cycle cannot re-enter.
+        dedup_key = (symbol, best_sig.strategy, best_sig.side.value,
+                     str(cand.get("candle_ts", "")))
+        if dedup_key in self._seen_signals:
+            self._skipped["duplicate signal"] = self._skipped.get("duplicate signal", 0) + 1
+            return
         ok, reason = self.risk.can_open(
             market, symbol, best_sig.side, self.portfolio.positions,
             self.portfolio.equity_local(market),
-            self.portfolio.day_pnl_local(market))
+            self.portfolio.day_pnl_local(market), stale_data=stale)
         if not ok:
             # a blocked entry is normal, not an event - count it and report
             # once per cycle instead of flooding the log
@@ -347,6 +481,12 @@ class Engine:
         reward = abs(best_sig.target - best_sig.entry)
         if risk <= 0 or reward / risk < self.cfg["risk"]["min_risk_reward"]:
             return
+        exq = self._execution_quote(symbol, best_sig.entry, market)
+        if exq is None:
+            self._skipped["price moved beyond limit"] = (
+                self._skipped.get("price moved beyond limit", 0) + 1)
+            return
+        price = exq.price
         # the reason explains *why* this setup fired: score + regime + the
         # conditions that aligned
         parts = [best_label or best_name]
@@ -372,6 +512,7 @@ class Engine:
         if filled.status != OrderStatus.FILLED:
             self.log(f"order rejected {symbol}", "error")
             return
+        self._seen_signals.add(dedup_key)
         pos = None
         if isinstance(self.broker.positions, dict):
             pos = self.broker.positions.get(order.id)
@@ -679,10 +820,11 @@ class Engine:
                     continue
                 qcur = fetch_map.get(cur, cur)
                 try:
-                    t = yf.Ticker(f"{qcur}INR=X")
-                    h = t.history(period="1d")
+                    from trader.data.yf_provider import YFinanceProvider
+                    prov = YFinanceProvider()
+                    h = prov.get_candles(f"{qcur}INR=X", interval="1d", lookback_days=2)
                     if h is not None and not h.empty:
-                        rate = float(h["Close"].iloc[-1])
+                        rate = float(h["close"].iloc[-1])
                         self.portfolio.fx_rates[cur] = rate
                         if cur != qcur:
                             self.portfolio.fx_rates[qcur] = rate
@@ -696,12 +838,15 @@ class Engine:
     def scan_once(self):
         self.cycle += 1
         _scan_start = time.time()
+        tel = self.telemetry.new_cycle()
+        tel.requested = sum(len(v) for v in self.watchlists.values())
         self._opened_cycle = 0
         cycle_scanned = 0
         cycle_signals = 0
         cycle_blocked = 0
         cycle_candidates = 0
         cycle_stale = 0
+        cycle_prescreened = 0
         self._update_fx()
         self._roll_over_day()
         self.portfolio.update_prices({})
@@ -716,6 +861,7 @@ class Engine:
                 self.log(f"kill switch: flattened {n} position(s), no new entries today", "warn")
             except Exception as e:
                 self.log(f"kill square-off error: {e}", "error")
+        # ---- sequential pre-pass: close/flatten markets we are not scanning ----
         for market in self.markets_cfg:
             st = self.clock.status(market)
             status = st["status"]
@@ -742,195 +888,34 @@ class Engine:
                             txt += f"; next open {no}"
                     self.log(txt)
                 self.last_scan[market] = []
-                continue
-            symbols = self.watchlists.get(market, [])
-            prov = self.providers[market]
-            rows = []
-            candidates = []
-            # publish results incrementally so the dashboard fills in as we go
-            self.last_scan[market] = rows
-            if hasattr(prov, "batch_download"):
-                data_map = prov.batch_download(symbols, self.cfg.get("candle_interval", "5m"),
-                                             self.cfg.get("lookback_days", 5))
-            else:
-                data_map = {s: prov.get_candles(s, self.cfg.get("candle_interval", "5m"),
-                                                self.cfg.get("lookback_days", 5)) for s in symbols}
-            self.scan_market = market
-            for sym_i, symbol in enumerate(symbols):
-                self.current_scanning = f"{market} {symbol}"
-                self.scan_progress = f"{market} {sym_i + 1}/{len(symbols)}"
-                try:
-                    df = data_map.get(symbol)
-                    if df is None or df.empty:
-                        rows.append({"symbol": symbol, "market": market, "price": None, "change": None,
-                                     "regime": "no data", "best": None, "score": None,
-                                     "signal": "NONE", "setups": 0, "firings": [],
-                                     "metrics": {}, "plan": None, "gate": "",
-                                     "updated": datetime.now(timezone.utc), "stale": True})
-                        self.last_scan[market] = list(rows)
-                        continue
-                    # staleness
-                    last_ts = df.index[-1]
-                    age_bars = 0
+
+        # ---- scan open markets in parallel, one task per market ----
+        open_markets = [m for m in self.markets_cfg
+                        if self.clock.status(m)["status"] in ("OPEN", "PRE-CLOSE")]
+        if open_markets:
+            max_workers = min(len(open_markets), 4)
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                futures = {ex.submit(self._scan_market, m): m for m in open_markets}
+                for fut in as_completed(futures):
+                    market = futures[fut]
                     try:
-                        # count bars since last? just store ts
-                        pass
-                    except Exception:
-                        pass
-                    dfc = drop_unfinished(df)
-                    price = float(df["close"].iloc[-1])
-                    # % change from prev close (first bar of day? use prev bar)
-                    change = 0.0
-                    if len(df) >= 2:
-                        change = (df["close"].iloc[-1] / df["close"].iloc[-2] - 1) * 100
-                    stale = False
-                    try:
-                        now_utc = datetime.now(timezone.utc)
-                        age = (now_utc - pd.Timestamp(last_ts).tz_convert("UTC").to_pydatetime()).total_seconds()
-                        interval_sec = 300 if self.cfg.get("candle_interval","5m")=="5m" else 60
-                        if age > 2 * interval_sec:
-                            stale = True
-                    except Exception:
-                        pass
-                    # simple: store last_ts
-                    # regime
-                    regime = self.selector.detect_regime(dfc)
-                    metrics = self._scan_metrics(dfc, price, regime)
-                    # run strategies - one shared Ctx for the whole symbol
-                    live_signals = {}
-                    firings = []
-                    ctx = None
-                    try:
-                        from trader.strategies.context import Ctx
-                        ctx = Ctx(dfc, symbol, market)
+                        _rows, _candidates, _pmap, _stats = fut.result()
                     except Exception as e:
-                        log.debug("ctx failed %s: %s", symbol, e)
-                    for st in self.strategies:
-                        try:
-                            if ctx is not None:
-                                sig = st.generate_from(ctx)
-                            else:
-                                sig = st.generate(dfc, symbol, market)
-                        except Exception as e:
-                            sig = None
-                            self.log(f"strategy err {st.name} {symbol}: {e}", "error")
-                        live_signals[st.name] = sig
-                        if sig is not None:
-                            try:
-                                label = st.display_name()
-                            except Exception:
-                                label = st.name
-                            firings.append({
-                                "name": st.name, "label": label,
-                                "side": sig.side.value,
-                                "confidence": float(getattr(sig, "confidence", 0.0) or 0.0),
-                                "entry": sig.entry, "stop": sig.stop, "target": sig.target,
-                                "reason": sig.reason or "",
-                            })
-                    firings.sort(key=lambda f: -f["confidence"])
-                    # selector
-                    result = self.selector.evaluate(symbol, dfc, self.strategies, live_signals, self.cycle)
-                    best_name = None
-                    best_score = None
-                    best_sig = None
-                    best_bs = None
-                    best_label = None
-                    best_reason = None
-                    best_reason_short = None
-                    if result is not None:
-                        best_name, best_score, best_bs, regime, best_sig = result[0], result[1], result[2], result[3], result[4]
-                        st_obj = next((s for s in self.strategies if s.name == best_name), None)
-                        best_label = st_obj.display_name() if st_obj is not None else best_name
-                        best_reason = best_sig.reason if best_sig is not None else ""
-                        # a compact form for the scanner column
-                        best_reason_short = " + ".join(best_reason.split(" + ")[:2]) if best_reason else ""
-                    # why a fired setup was not taken (first quality gate)
-                    gate = ""
-                    if best_sig is None and firings:
-                        gate = self._gate_reason(symbol, live_signals)
-                    # signal state: only the setup that would actually be
-                    # traded counts - showing an arbitrary other setup's
-                    # signal makes the table look busier than it is
-                    if best_sig is not None:
-                        signal_state = best_sig.side.value
-                    else:
-                        signal_state = "NONE"
-                    plan = None
-                    if best_sig is not None:
-                        risk = abs(best_sig.entry - best_sig.stop)
-                        reward = abs(best_sig.target - best_sig.entry)
-                        plan = {"entry": best_sig.entry, "stop": best_sig.stop,
-                                "target": best_sig.target,
-                                "rr": (reward / risk) if risk > 0 else None}
-                    stats_brief = None
-                    if best_bs is not None:
-                        stats_brief = {
-                            "trades": best_bs.trades, "win_rate": best_bs.win_rate,
-                            "profit_factor": best_bs.profit_factor,
-                            "expectancy_r": best_bs.expectancy_r,
-                        }
-                    regime_fit = None
-                    if best_name:
-                        try:
-                            regime_fit = self.selector.regime_fit(best_name, regime)
-                        except Exception:
-                            regime_fit = None
-                    # collect the candidate; the trade decision is made once
-                    # the whole market has been scanned, so only the best
-                    # ranked setups in a market are ever taken
-                    if best_sig is not None:
-                        candidates.append({
-                            "symbol": symbol, "price": price, "score": best_score,
-                            "sig": best_sig, "name": best_name, "label": best_label,
-                            "reason": best_reason, "regime": regime,
-                        })
-                    rows.append({
-                        "symbol": symbol,
-                        "market": market,
-                        "price": price,
-                        "prev_close": float(df["close"].iloc[-2]) if len(df) >= 2 else None,
-                        "change": change,
-                        "regime": regime.label,
-                        "best": best_name,
-                        "best_label": best_label or best_name,
-                        "best_reason": best_reason or "",
-                        "best_reason_short": best_reason_short or "",
-                        "gate": gate,
-                        "score": best_score,
-                        "signal": signal_state,
-                        "confidence": float(getattr(best_sig, "confidence", 0.0) or 0.0) if best_sig is not None else None,
-                        "regime_fit": regime_fit,
-                        "plan": plan,
-                        "stats": stats_brief,
-                        "setups": len(firings),
-                        "firings": firings,
-                        "metrics": metrics,
-                        "updated": datetime.now(timezone.utc),
-                        "stale": stale,
-                    })
-                    price_map[symbol] = price
-                    cycle_scanned += 1
-                    if stale:
-                        cycle_stale += 1
-                    if signal_state != "NONE":
-                        cycle_signals += 1
-                    if gate:
-                        cycle_blocked += 1
-                except Exception as e:
-                    self.log(f"scan error {market} {symbol}: {e}", "error")
-                    rows.append({"symbol": symbol, "market": market, "price": None, "change": None,
-                                 "regime": "error", "best": None, "score": None,
-                                 "signal": "NONE", "setups": 0, "firings": [],
-                                 "metrics": {}, "plan": None, "gate": "",
-                                 "updated": datetime.now(timezone.utc), "stale": True})
-                # publish so the dashboard updates while the scan is still running
-                self.last_scan[market] = list(rows)
-            self.last_scan[market] = rows
-            self.scan_market = ""
-            cycle_candidates += len(candidates)
-            # the market has been scanned - now decide what to actually trade
-            with self.lock:
-                self._trade_candidates(market, candidates)
+                        # one market must never abort the whole cycle
+                        self.log(f"scan failed {market}: {e}", "error")
+                        continue
+                    price_map.update(_pmap)
+                    cycle_scanned += _stats["scanned"]
+                    cycle_signals += _stats["signals"]
+                    cycle_blocked += _stats["blocked"]
+                    cycle_stale += _stats["stale"]
+                    cycle_prescreened += _stats.get("prescreened", 0)
+                    tel.scanned += _stats["scanned"]
+                    tel.missing_data += _stats.get("missing", 0)
+                    tel.errors += _stats.get("errors", 0)
+                    tel.stale += _stats["stale"]
+                    tel.download_latency_s += _stats.get("download_latency_s", 0.0)
+                    cycle_candidates += _stats["candidates"]
         self._check_exits(price_map)
         self.latest_prices.update(price_map)
         for sym, px in price_map.items():
@@ -957,22 +942,361 @@ class Engine:
             for reason, n in self._skipped.items():
                 self.skip_counts[reason] = self.skip_counts.get(reason, 0) + n
             self._skipped = {}
+        tel.total_s = time.time() - _scan_start
+        tel.prescreened = cycle_prescreened
+        tel.processing_latency_s = max(0.0, tel.total_s - tel.download_latency_s)
+        # quote coverage and freshness from the live quote cache
+        watched = set()
+        for syms in self.watchlists.values():
+            watched.update(syms)
+        for sym in watched:
+            tel.quotes_checked += 1
+            if not self.live_quotes:
+                continue
+            q = self.ticker.quote(sym)
+            if q is None:
+                continue
+            age = max(0.0, time.time() - q[1])
+            if age > self.max_quote_age_seconds:
+                tel.quotes_stale += 1
+            else:
+                tel.quotes_ok += 1
+                if age > self.max_quote_age_seconds / 2:
+                    tel.quotes_delayed += 1
+        for prov in self.providers.values():
+            h = getattr(prov, "health", None)
+            if not callable(h):
+                continue
+            try:
+                hh = h() or {}
+                if "primary" in hh:
+                    for part in ("primary", "fallback"):
+                        sub = hh.get(part) or {}
+                        tel.provider_success += int(sub.get("successes", 0))
+                        tel.provider_failure += int(sub.get("failures", 0))
+                    tel.fallback_used += int(hh.get("fallback_used", 0))
+                else:
+                    tel.provider_success += int(hh.get("successes", 0))
+                    tel.provider_failure += int(hh.get("failures", 0))
+            except Exception:
+                pass
+        for m, rows in self.last_scan.items():
+            for r in rows or []:
+                if r.get("signal") in ("LONG", "SHORT"):
+                    name = str(r.get("best") or "unknown")
+                    tel.signals_by_strategy[name] = tel.signals_by_strategy.get(name, 0) + 1
+                    tel.signals_by_market[m] = tel.signals_by_market.get(m, 0) + 1
+        self.last_telemetry = self.telemetry.finish(tel)
         self.last_cycle_stats = {
             "scanned": cycle_scanned, "signals": cycle_signals,
             "candidates": cycle_candidates, "opened": self._opened_cycle,
             "blocked_gate": cycle_blocked, "stale": cycle_stale,
+            "prescreened": cycle_prescreened,
         }
+
+    def _scan_market(self, market: str):
+        """Scan one open market end to end.
+
+        Downloads candles, runs indicators/strategies/selector per symbol and
+        publishes rows to self.last_scan[market] incrementally. Returns
+        (rows, candidates, price_map_slice, stats) so scan_once can merge the
+        result of each parallel market back into the single price map and
+        cycle totals sequentially. Only per-market state is touched here;
+        _trade_candidates runs under self.lock.
+        """
+        symbols = self.watchlists.get(market, [])
+        prov = self.providers[market]
+        rows = []
+        candidates = []
+        # publish results incrementally so the dashboard fills in as we go
+        self.last_scan[market] = rows
+        _dl_start = time.monotonic()
+        if hasattr(prov, "batch_download"):
+            data_map = prov.batch_download(symbols, self.cfg.get("candle_interval", "5m"),
+                                           self.cfg.get("lookback_days", 5))
+        else:
+            data_map = {s: prov.get_candles(s, self.cfg.get("candle_interval", "5m"),
+                                             self.cfg.get("lookback_days", 5)) for s in symbols}
+        download_latency = time.monotonic() - _dl_start
+        price_map: Dict[str, float] = {}
+        market_scanned = 0
+        market_signals = 0
+        market_blocked = 0
+        market_stale = 0
+        market_prescreened = 0
+        market_missing = 0
+        market_errors = 0
+        for sym_i, symbol in enumerate(symbols):
+            try:
+                df = data_map.get(symbol)
+                if df is None or df.empty:
+                    rows.append({"symbol": symbol, "market": market, "price": None, "change": None,
+                                 "regime": "no data", "best": None, "score": None,
+                                 "signal": "NONE", "setups": 0, "firings": [],
+                                 "metrics": {}, "plan": None, "gate": "",
+                                  "updated": datetime.now(timezone.utc), "stale": True})
+                    self.last_scan[market] = list(rows)
+                    market_missing += 1
+                    continue
+                # ---- completed-candle boundary -------------------------
+                interval = self.cfg.get("candle_interval", "5m")
+                interval_sec = interval_seconds(interval)
+                now_utc = datetime.now(timezone.utc)
+                dfc = drop_unfinished(df, interval, now=now_utc)
+                if dfc is None or dfc.empty:
+                    # No completed bar: never let an in-progress candle
+                    # generate a candidate.
+                    rows.append({"symbol": symbol, "market": market, "price": None,
+                                 "change": None, "regime": "incomplete candle",
+                                 "best": None, "score": None, "signal": "NONE",
+                                 "setups": 0, "firings": [], "metrics": {},
+                                 "plan": None, "gate": "",
+                                 "updated": now_utc, "stale": True})
+                    self.last_scan[market] = list(rows)
+                    market_missing += 1
+                    continue
+                last_ts = dfc.index[-1]
+                # Display/reference price stays the newest received close for
+                # UI continuity; signal prices come from dfc and execution
+                # prices are resolved separately in _open_candidate.
+                price = float(df["close"].iloc[-1])
+                signal_close = float(dfc["close"].iloc[-1])
+                # % change from prev close (first bar of day? use prev bar)
+                change = 0.0
+                if len(dfc) >= 2:
+                    change = (signal_close / float(dfc["close"].iloc[-2]) - 1) * 100
+                candle_ts = pd.Timestamp(last_ts).tz_convert("UTC").isoformat()
+                stale = False
+                try:
+                    age = (now_utc - pd.Timestamp(last_ts).tz_convert("UTC").to_pydatetime()).total_seconds()
+                    if age > self.max_candle_age_bars * interval_sec:
+                        stale = True
+                except Exception:
+                    stale = True
+                # ---- cheap pre-screen before 45 strategies + backtest ----
+                screen = self.prescreener.screen(
+                    dfc, self.benchmark_candles.get(market), symbol)
+                if not screen.passed:
+                    rows.append({
+                        "symbol": symbol, "market": market, "price": price,
+                        "change": change, "regime": "pre-screened",
+                        "best": None, "score": None, "signal": "NONE",
+                        "setups": 0, "firings": [], "metrics": {},
+                        "plan": None,
+                        "gate": "pre-screen: " + (", ".join(screen.reasons) or "filtered"),
+                        "screen": screen.to_dict(),
+                        "updated": now_utc, "stale": stale,
+                    })
+                    self.last_scan[market] = list(rows)
+                    market_prescreened += 1
+                    continue
+                # regime
+                regime = self.selector.detect_regime(dfc)
+                metrics = self._scan_metrics(dfc, price, regime)
+                # run strategies - one shared Ctx for the whole symbol
+                live_signals = {}
+                firings = []
+                ctx = None
+                try:
+                    from trader.strategies.context import Ctx
+                    ctx = Ctx(dfc, symbol, market)
+                except Exception as e:
+                    log.debug("ctx failed %s: %s", symbol, e)
+                for st in self.strategies:
+                    try:
+                        if ctx is not None:
+                            sig = st.generate_from(ctx)
+                        else:
+                            sig = st.generate(dfc, symbol, market)
+                    except Exception as e:
+                        sig = None
+                        self.log(f"strategy err {st.name} {symbol}: {e}", "error")
+                    live_signals[st.name] = sig
+                    if sig is not None:
+                        try:
+                            label = st.display_name()
+                        except Exception:
+                            label = st.name
+                        firings.append({
+                            "name": st.name, "label": label,
+                            "side": sig.side.value,
+                            "confidence": float(getattr(sig, "confidence", 0.0) or 0.0),
+                            "entry": sig.entry, "stop": sig.stop, "target": sig.target,
+                            "reason": sig.reason or "",
+                        })
+                firings.sort(key=lambda f: -f["confidence"])
+                # ---- quantitative ranking context ----------------------
+                tv = float(screen.features.get("traded_value", 0.0) or 0.0)
+                span = max(1.0, self.liq_max_tv - self.liq_min_tv)
+                liquidity = max(0.0, min(1.0, (tv - self.liq_min_tv) / span))
+                candle_age_s = max(0.0, (now_utc - pd.Timestamp(last_ts).tz_convert("UTC")
+                                         ).total_seconds())
+                freshness = max(0.0, min(1.0, 1.0 - candle_age_s /
+                                         max(1.0, self.max_candle_age_bars * interval_sec)))
+                rank_ctx = {
+                    "relative_strength": float(screen.features.get("relative_strength_pct", 0.0)),
+                    "liquidity_quality": liquidity,
+                    "data_freshness": freshness,
+                }
+                # selector
+                result = self.selector.evaluate(symbol, dfc, self.strategies, live_signals,
+                                                self.cycle, context=rank_ctx)
+                best_name = None
+                best_score = None
+                best_sig = None
+                best_bs = None
+                best_label = None
+                best_reason = None
+                best_reason_short = None
+                if result is not None:
+                    best_name, best_score, best_bs, regime, best_sig = result[0], result[1], result[2], result[3], result[4]
+                    st_obj = next((s for s in self.strategies if s.name == best_name), None)
+                    best_label = st_obj.display_name() if st_obj is not None else best_name
+                    best_reason = best_sig.reason if best_sig is not None else ""
+                    # a compact form for the scanner column
+                    best_reason_short = " + ".join(best_reason.split(" + ")[:2]) if best_reason else ""
+                # ---- multi-timeframe confirmation (config-gated) ----
+                mtf_result = None
+                mtf_block = False
+                if self.mtf.active:
+                    frames = dict(self.mtf_frames.get(market, {}).get(symbol, {}))
+                    frames.setdefault(interval, dfc)
+                    if self.mtf_fetch_missing:
+                        for tf in self.mtf.timeframes:
+                            if tf not in frames and tf != interval:
+                                try:
+                                    extra = prov.get_candles(symbol, tf, self.cfg.get("lookback_days", 5))
+                                    if extra is not None and not extra.empty:
+                                        frames[tf] = extra
+                                except Exception:
+                                    pass
+                    mtf_result = self.mtf.analyze(
+                        symbol, frames, best_sig.side if best_sig is not None else None)
+                    mtf_block = bool(self.mtf.block_on_conflict and mtf_result.conflicts
+                                     and best_sig is not None)
+                # why a fired setup was not taken (first quality gate)
+                gate = ""
+                if best_sig is None and firings:
+                    gate = self._gate_reason(symbol, live_signals)
+                # signal state: only the setup that would actually be
+                # traded counts - showing an arbitrary other setup's
+                # signal makes the table look busier than it is
+                if best_sig is not None:
+                    signal_state = best_sig.side.value
+                else:
+                    signal_state = "NONE"
+                plan = None
+                if best_sig is not None:
+                    risk = abs(best_sig.entry - best_sig.stop)
+                    reward = abs(best_sig.target - best_sig.entry)
+                    plan = {"entry": best_sig.entry, "stop": best_sig.stop,
+                            "target": best_sig.target,
+                            "rr": (reward / risk) if risk > 0 else None}
+                stats_brief = None
+                if best_bs is not None:
+                    stats_brief = {
+                        "trades": best_bs.trades, "win_rate": best_bs.win_rate,
+                        "profit_factor": best_bs.profit_factor,
+                        "expectancy_r": best_bs.expectancy_r,
+                    }
+                regime_fit = None
+                if best_name:
+                    try:
+                        regime_fit = self.selector.regime_fit(best_name, regime)
+                    except Exception:
+                        regime_fit = None
+                # collect the candidate; the trade decision is made once
+                # the whole market has been scanned, so only the best
+                # ranked setups in a market are ever taken
+                if best_sig is not None and not mtf_block:
+                    candidates.append({
+                        "symbol": symbol, "price": price, "score": best_score,
+                        "sig": best_sig, "name": best_name, "label": best_label,
+                        "reason": best_reason, "regime": regime,
+                        "stale": stale, "candle_ts": candle_ts,
+                        "signal_price": signal_close,
+                    })
+                rows.append({
+                    "symbol": symbol,
+                    "market": market,
+                    "price": price,
+                    "prev_close": float(df["close"].iloc[-2]) if len(df) >= 2 else None,
+                    "change": change,
+                    "regime": regime.label,
+                    "best": best_name,
+                    "best_label": best_label or best_name,
+                    "best_reason": best_reason or "",
+                    "best_reason_short": best_reason_short or "",
+                    "gate": gate,
+                    "score": best_score,
+                    "signal": signal_state,
+                    "confidence": float(getattr(best_sig, "confidence", 0.0) or 0.0) if best_sig is not None else None,
+                    "regime_fit": regime_fit,
+                    "plan": plan,
+                    "stats": stats_brief,
+                    "setups": len(firings),
+                    "firings": firings,
+                    "metrics": metrics,
+                    "updated": datetime.now(timezone.utc),
+                    "stale": stale,
+                    "mtf": mtf_result.to_dict() if mtf_result is not None else None,
+                })
+                price_map[symbol] = price
+                market_scanned += 1
+                if stale:
+                    market_stale += 1
+                if signal_state != "NONE":
+                    market_signals += 1
+                if gate:
+                    market_blocked += 1
+            except Exception as e:
+                market_errors += 1
+                self.log(f"scan error {market} {symbol}: {e}", "error")
+                rows.append({"symbol": symbol, "market": market, "price": None, "change": None,
+                             "regime": "error", "best": None, "score": None,
+                             "signal": "NONE", "setups": 0, "firings": [],
+                             "metrics": {}, "plan": None, "gate": "",
+                             "updated": datetime.now(timezone.utc), "stale": True})
+            # publish so the dashboard updates while the scan is still running
+            self.last_scan[market] = list(rows)
+        self.last_scan[market] = rows
+        # persist scan rows so the HTML dashboard can read live scanner data
+        try:
+            self.storage.save_scan_cache(market, rows)
+        except Exception as e:
+            self.log(f"scan cache write failed {market}: {e}", "error")
+        # the market has been scanned - now decide what to actually trade
+        with self.lock:
+            self._trade_candidates(market, candidates)
+        stats = {
+            "scanned": market_scanned,
+            "signals": market_signals,
+            "blocked": market_blocked,
+            "stale": market_stale,
+            "prescreened": market_prescreened,
+            "missing": market_missing,
+            "errors": market_errors,
+            "download_latency_s": download_latency,
+            "candidates": len(candidates),
+        }
+        return rows, candidates, price_map, stats
 
     # ------------------------------------------------------------ live quotes
     def start_price_thread(self):
         """Start the background thread that keeps prices and exits current."""
         if self._price_thread is not None:
             return
+        if (self.cfg.get("data", {}) or {}).get("streaming_enabled", False):
+            try:
+                self.start_streaming_quotes(self.price_refresh_seconds)
+            except Exception as e:
+                self.log(f"quote stream failed to start: {e}", "warn")
         self._price_thread = threading.Thread(target=self._price_loop, daemon=True,
                                               name="quotes")
         self._price_thread.start()
 
     def stop_price_thread(self):
+        self.stop_streaming_quotes()
         t = self._price_thread
         self._price_thread = None
         if t is not None and t.is_alive():

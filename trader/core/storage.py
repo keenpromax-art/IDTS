@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import sqlite3
 import os
@@ -146,3 +146,60 @@ class Storage:
         with self._conn() as c:
             rows = c.execute("SELECT market,strategy,COUNT(*),SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),SUM(pnl) FROM trades GROUP BY market,strategy").fetchall()
         return rows
+
+    # ---------------------------------------------------------------- scan cache
+    def save_scan_cache(self, market: str, rows: list):
+        """Persist the latest scan rows for a market so the HTML dashboard
+        can show live scanner data without reading the engine's in-memory
+        state directly."""
+        with self._conn() as c:
+            c.execute("DELETE FROM scan_cache WHERE market=?", (market,))
+            for r in rows:
+                c.execute(
+                    """INSERT INTO scan_cache
+                       (market, symbol, price, change, signal, score, strategy,
+                        regime, reason, updated, stale)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        market,
+                        r.get("symbol"),
+                        r.get("price"),
+                        r.get("change"),
+                        r.get("signal"),
+                        r.get("score"),
+                        r.get("best"),
+                        r.get("regime"),
+                        r.get("best_reason") or r.get("gate") or "",
+                        r.get("updated").isoformat() if hasattr(r.get("updated"), "isoformat") else str(r.get("updated")),
+                        1 if r.get("stale") else 0,
+                    ),
+                )
+
+    def load_scan_cache(self) -> list:
+        """Load the latest cached scan rows across all markets."""
+        with self._conn() as c:
+            c.execute("""CREATE TABLE IF NOT EXISTS scan_cache (
+                market TEXT, symbol TEXT, price REAL, change REAL,
+                signal TEXT, score REAL, strategy TEXT, regime TEXT,
+                reason TEXT, updated TEXT, stale INTEGER,
+                PRIMARY KEY (market, symbol)
+            )""")
+            rows = c.execute(
+                "SELECT market,symbol,price,change,signal,score,strategy,regime,reason,updated,stale FROM scan_cache"
+            ).fetchall()
+        out = []
+        for r in rows:
+            out.append({
+                "market": r[0],
+                "symbol": r[1],
+                "price": r[2],
+                "change": r[3],
+                "signal": r[4],
+                "score": r[5],
+                "strategy": r[6],
+                "regime": r[7],
+                "reason": r[8],
+                "updated": r[9],
+                "stale": bool(r[10]),
+            })
+        return out

@@ -50,39 +50,39 @@ def test_enabled_names_are_real():
 
 def test_risk_defaults_match_readme():
     r = settings["risk"]
-    assert r["risk_per_trade_pct"] == 0.75
-    assert r["max_position_pct_of_equity"] == 20
-    assert r["max_concurrent_positions"] == 6
-    assert r["max_positions_per_market"] == 3
-    assert r["max_trades_per_symbol_per_day"] == 2
-    assert r["max_daily_loss_pct"] == 1.5
-    assert r["cooldown_minutes_after_loss"] == 30
-    assert r["no_entry_first_minutes"] == 5
-    assert r["no_entry_last_minutes"] == 30
-    assert r["square_off_before_close_minutes"] == 12
-    assert r["min_risk_reward"] == 1.5
+    assert r["risk_per_trade_pct"] == 0.5
+    assert r["max_position_pct_of_equity"] == 15
+    assert r["max_concurrent_positions"] == 4
+    assert r["max_positions_per_market"] == 2
+    assert r["max_trades_per_symbol_per_day"] == 1
+    assert r["max_daily_loss_pct"] == 1.0
+    assert r["cooldown_minutes_after_loss"] == 45
+    assert r["no_entry_first_minutes"] == 10
+    assert r["no_entry_last_minutes"] == 45
+    assert r["square_off_before_close_minutes"] == 20
+    assert r["min_risk_reward"] == 2.0
     assert r["close_on_market_closed"] is True
-    for label, value in (("0.75%", r["risk_per_trade_pct"]),
-                         ("1.5%", r["max_daily_loss_pct"]),
-                         ("20%", r["max_position_pct_of_equity"]),
-                         ("30 minutes", r["cooldown_minutes_after_loss"]),
-                         ("first 5 min", r["no_entry_first_minutes"]),
-                         ("last 30 min", r["no_entry_last_minutes"]),
-                         ("12 min", r["square_off_before_close_minutes"]),
-                         ("1.5R", r["min_risk_reward"])):
+    for label, value in (("0.50%", r["risk_per_trade_pct"]),
+                         ("1.0%", r["max_daily_loss_pct"]),
+                         ("15%", r["max_position_pct_of_equity"]),
+                         ("45 minutes", r["cooldown_minutes_after_loss"]),
+                         ("first 10 min", r["no_entry_first_minutes"]),
+                         ("last 45 min", r["no_entry_last_minutes"]),
+                         ("20 min", r["square_off_before_close_minutes"]),
+                         ("2.0R", r["min_risk_reward"])):
         assert label in README, f"README does not mention {label}"
 
 
 def test_selector_defaults_match_readme():
     s = settings["selector"]
-    assert s["min_trade_count"] == 8
-    assert s["min_expectancy_r"] == 0.0
-    assert s["min_profit_factor"] == 1.1
-    assert s["min_win_rate"] == 0.35
-    assert s["min_signal_confidence"] == 0.55
-    assert s["min_score"] == 0.55
-    assert s["min_market_score"] == 0.60
-    assert s["max_trades_per_market_per_cycle"] == 2
+    assert s["min_trade_count"] == 15
+    assert s["min_expectancy_r"] == 0.15
+    assert s["min_profit_factor"] == 1.4
+    assert s["min_win_rate"] == 0.45
+    assert s["min_signal_confidence"] == 0.65
+    assert s["min_score"] == 0.65
+    assert s["min_market_score"] == 0.70
+    assert s["max_trades_per_market_per_cycle"] == 1
     assert s["score_refresh_cycles"] == 5
     assert s["regime"]["adx_trending_threshold"] == 25
     weights = s["weights"]

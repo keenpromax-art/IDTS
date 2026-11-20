@@ -11,18 +11,20 @@ price_refresh_seconds: 1.0
 price_refresh_max_workers: 12
 fast_scan_seconds: 5.0
 risk:
-  risk_per_trade_pct: 0.75
-  max_position_pct_of_equity: 20
-  max_concurrent_positions: 6
-  max_positions_per_market: 3
-  max_trades_per_symbol_per_day: 2
-  max_daily_loss_pct: 1.5
-  cooldown_minutes_after_loss: 30
-  no_entry_first_minutes: 5
-  no_entry_last_minutes: 30
-  square_off_before_close_minutes: 12
+  risk_per_trade_pct: 0.5
+  max_position_pct_of_equity: 15
+  max_concurrent_positions: 4
+  max_positions_per_market: 2
+  max_trades_per_symbol_per_day: 1
+  max_daily_loss_pct: 1.0
+  cooldown_minutes_after_loss: 45
+  no_entry_first_minutes: 10
+  no_entry_last_minutes: 45
+  square_off_before_close_minutes: 20
   close_on_market_closed: true
-  min_risk_reward: 1.5
+  rolling_loss_window_hours: 24
+  rolling_loss_pct: 1.5
+  min_risk_reward: 2.0
   trailing_stop: true
   trailing_atr_mult: 1.0
 capital:
@@ -88,29 +90,82 @@ rules:
   disabled: []
 rule_params:
   rule_trend_stack:
-    min_confidence: 0.55
-    stop_atr: 1.5
-    target_rr: 2.5
+    min_confidence: 0.65
+    stop_atr: 1.75
+    target_rr: 3.0
   rule_breakout_volume:
-    min_confidence: 0.6
-    stop_atr: 1.5
-    target_rr: 2.5
+    min_confidence: 0.7
+    stop_atr: 1.75
+    target_rr: 3.0
   rule_vwap_reversion:
-    min_confidence: 0.5
-    stop_atr: 1.5
-    target_rr: 2.0
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_golden_cross:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 3.5
+  rule_macd_ema:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_macd_ema_short:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_squeeze_release:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 3.0
+  rule_keltner_trend:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_obv_momentum:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_rsi_mfi:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_rsi_mfi_short:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_supertrend_volume:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_ema20_50_cross:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
+  rule_trend_stack_short:
+    min_confidence: 0.65
+    stop_atr: 1.75
+    target_rr: 3.0
+  rule_breakout_volume_short:
+    min_confidence: 0.7
+    stop_atr: 1.75
+    target_rr: 3.0
+  rule_vwap_reversion_short:
+    min_confidence: 0.6
+    stop_atr: 1.75
+    target_rr: 2.5
 selector:
-  min_trade_count: 8
-  min_expectancy_r: 0.0
-  min_profit_factor: 1.1
-  min_win_rate: 0.35
-  min_signal_confidence: 0.55
-  min_score: 0.55
-  max_backtest_setups: 6
-  min_market_score: 0.6
-  max_trades_per_market_per_cycle: 2
+  min_trade_count: 15
+  min_expectancy_r: 0.15
+  min_profit_factor: 1.4
+  min_win_rate: 0.45
+  min_signal_confidence: 0.65
+  min_score: 0.65
+  max_backtest_setups: 4
+  min_market_score: 0.70
+  max_trades_per_market_per_cycle: 1
   backtest_sessions: 5
   backtest_max_bars: 400
+  scoring_lookback_days: 20
   score_refresh_cycles: 5
   weights:
     expectancy: 0.4
@@ -121,6 +176,32 @@ selector:
   regime:
     adx_trending_threshold: 25
     atr_percentile_high: 65
+  # Realistic next-bar backtest execution with explicit cost model.
+  execution_model:
+    mode: next_bar
+    slippage_bps: 5
+    spread_bps: 2
+    commission_bps: 0
+  # Enhanced multi-dimensional ranking. Off by default: the legacy weighted
+  # score stays identical until explicitly enabled.
+  ranking:
+    enabled: false
+    blend: 1.0
+    walk_forward_enabled: false
+    walk_forward_train_bars: 120
+    walk_forward_test_bars: 60
+    walk_forward_folds: 3
+    weights:
+      net_expectancy: 0.22
+      sharpe: 0.12
+      sortino: 0.10
+      sample_size: 0.08
+      max_drawdown: 0.08
+      regime: 0.12
+      relative_strength: 0.08
+      liquidity: 0.06
+      freshness: 0.06
+      walk_forward: 0.08
   trend_strategies: []
   meanrev_strategies: []
 paper:
@@ -146,6 +227,46 @@ paper:
       stt_pct: 0.0
       exchange_pct: 0.0
       gst_pct: 0
+data:
+  gateway_enabled: false
+  streaming_enabled: false
+  max_quote_age_seconds: 30
+  max_signal_quote_deviation_pct: 1.0
+  max_candle_age_bars: 2.0
+  max_workers: 8
+  negative_cache_seconds: 20
+  rate_limit_seconds: 0.0
+  # Pre-screening runs before the 45 strategies. All filters are optional;
+  # with enabled: false (default) the legacy full scan is unchanged.
+  prescreen:
+    enabled: false
+    lookback_bars: 20
+    orb_bars: 3
+    combine: all
+    min_abs_pct_move: null
+    max_abs_pct_move: null
+    min_relative_volume: null
+    min_volume_acceleration: null
+    min_traded_value: null
+    min_atr_expansion: null
+    max_vwap_deviation_atr: null
+    orb_breakout: false
+    min_abs_gap_pct: null
+    min_relative_strength_pct: null
+    max_range_pct: null
+    min_trend_persistence: null
+  # Multi-timeframe analysis. Higher TFs are derived from the primary frame
+  # unless derive: false, in which case fetch_missing may request them.
+  mtf:
+    enabled: false
+    primary: 5m
+    timeframes: [5m, 15m, 1h, 1d]
+    derive: true
+    fetch_missing: false
+    block_on_conflict: false
+    min_alignment: 0.6
+    adx_threshold: 20
+    atr_expansion_threshold: 1.1
 angel:
   enabled_if_creds: true
   rate_limit_seconds: 0.34

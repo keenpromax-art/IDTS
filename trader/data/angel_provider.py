@@ -3,10 +3,14 @@ from __future__ import annotations
 import os
 import json
 import time
+import threading
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
+from zoneinfo import ZoneInfo
 import pandas as pd
+
+from trader.data.base import DataProvider
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +26,7 @@ INTERVAL_MAP = {
 }
 
 
-class AngelProvider:
+class AngelProvider(DataProvider):
     name = "angel"
 
     def __init__(self, api_key=None, client_id=None, pin=None, totp_secret=None,
@@ -34,6 +38,7 @@ class AngelProvider:
         self.cache_dir = cache_dir
         self.rate_limit = rate_limit
         self._last_call = 0.0
+        self._rate_lock = threading.Lock()
         self._smart = None
         self._token_map: Dict[str, str] = {}
         self._master_loaded = False
@@ -63,10 +68,12 @@ class AngelProvider:
             self.available = False
 
     def _rate_limit(self):
-        now = time.time()
-        if now - self._last_call < self.rate_limit:
-            time.sleep(self.rate_limit - (now - self._last_call))
-        self._last_call = time.time()
+        """Serialize calls so concurrent batch workers cannot exceed the limit."""
+        with self._rate_lock:
+            now = time.time()
+            if now - self._last_call < self.rate_limit:
+                time.sleep(self.rate_limit - (now - self._last_call))
+            self._last_call = time.time()
 
     def _load_master(self):
         if self._master_loaded:
@@ -132,8 +139,8 @@ class AngelProvider:
         angel_interval = INTERVAL_MAP.get(interval, "FIVE_MINUTE")
         todate = datetime.now(timezone.utc)
         fromdate = todate - timedelta(days=lookback_days)
-        # Angel expects IST? API uses local exchange time strings. Use IST.
-        ist = timezone(timedelta(hours=5, minutes=30))
+        # Angel expects exchange-local (IST) wall-clock strings.
+        ist = ZoneInfo("Asia/Kolkata")
         from_str = fromdate.astimezone(ist).strftime("%Y-%m-%d %H:%M")
         to_str = todate.astimezone(ist).strftime("%Y-%m-%d %H:%M")
         self._rate_limit()
@@ -166,12 +173,14 @@ class AngelProvider:
                 })
             df = pd.DataFrame(rows)
             df["ts"] = pd.to_datetime(df["ts"])
-            # Angel returns IST timestamps naive; localize to IST then UTC
-            if df["ts"].dt.tz is None:
-                df["ts"] = df["ts"].dt.tz_localize("Asia/Kolkata").dt.tz_convert("UTC")
+            # Angel returns naive IST timestamps for the NSE feed. Anything
+            # already timezone-aware is converted rather than silently kept.
+            if getattr(df["ts"].dt, "tz", None) is None:
+                df["ts"] = df["ts"].dt.tz_localize(ZoneInfo("Asia/Kolkata"))
+            df["ts"] = df["ts"].dt.tz_convert("UTC")
             df = df.set_index("ts")
             df.index.name = "ts"
-            return df[["open", "high", "low", "close", "volume"]]
+            return self.finalize_candles(df, symbol=symbol, interval=interval)
         except Exception as e:
             log.warning("angel exception %s: %s", symbol, e)
             return None

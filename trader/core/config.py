@@ -14,6 +14,26 @@ except Exception:  # pydantic v1 fallback
     ConfigDict = None
 
 
+class DataConfig(BaseModel):
+    """Data-layer, pre-screen and execution-price settings.
+
+    Market-specific overrides are allowed as extra keys so every market can be
+    configured independently without a code change.
+    """
+
+    gateway_enabled: bool = False
+    streaming_enabled: bool = False
+    max_quote_age_seconds: float = Field(default=30.0, gt=0)
+    max_signal_quote_deviation_pct: float = Field(default=1.0, gt=0)
+    max_candle_age_bars: float = Field(default=2.0, gt=0)
+    max_workers: int = Field(default=8, ge=1)
+    negative_cache_seconds: float = Field(default=20.0, gt=0)
+    rate_limit_seconds: float = Field(default=0.0, ge=0)
+
+    class Config:
+        extra = "allow"
+
+
 class RiskConfig(BaseModel):
     risk_per_trade_pct: float = Field(default=0.75, gt=0, le=100)
     max_position_pct_of_equity: float = Field(default=20, gt=0, le=100)
@@ -29,6 +49,8 @@ class RiskConfig(BaseModel):
     close_on_market_closed: bool = True
     trailing_stop: bool = True
     trailing_atr_mult: float = Field(default=1.0, gt=0)
+    rolling_loss_window_hours: float = Field(default=24.0, gt=0)
+    rolling_loss_pct: float = Field(default=1.5, gt=0)
 
 
 class SelectorConfig(BaseModel):
@@ -44,6 +66,13 @@ class SelectorConfig(BaseModel):
     backtest_sessions: int = Field(default=5, ge=1)
     backtest_max_bars: int = Field(default=250, ge=10)
     max_backtest_setups: int = Field(default=6, ge=1)
+    scoring_lookback_days: int = Field(default=20, ge=1)
+    expectancy_half_life: float = Field(default=0.0, ge=0)
+    trend_strategies: List[str] = Field(default_factory=list)
+    meanrev_strategies: List[str] = Field(default_factory=list)
+    execution_model: Dict[str, Any] = Field(default_factory=lambda: {
+        "mode": "next_bar", "slippage_bps": 5, "spread_bps": 2, "commission_bps": 0})
+    ranking: Dict[str, Any] = Field(default_factory=dict)
     regime: Dict[str, Any] = Field(default_factory=lambda: {"adx_trending_threshold": 25})
     weights: Dict[str, float] = Field(default_factory=lambda: {
         "expectancy": 0.40, "profit_factor": 0.20, "win_rate": 0.15,
@@ -67,6 +96,7 @@ class Settings(BaseModel):
     lookback_days: int = Field(default=5, ge=1, le=60)
     risk: RiskConfig = Field(default_factory=RiskConfig)
     selector: SelectorConfig = Field(default_factory=SelectorConfig)
+    data: DataConfig = Field(default_factory=DataConfig)
     capital: Dict[str, float] = Field(default_factory=dict)
     paper: Dict[str, Any] = Field(default_factory=dict)
     strategies: Dict[str, Any] = Field(default_factory=dict)

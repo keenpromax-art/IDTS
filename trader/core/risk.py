@@ -13,6 +13,9 @@ class RiskManager:
         self.clock = clock
         self.kill_switch = False
         self.daily_pnl: Dict[str, float] = {}
+        self.rolling_window_hours = int(self.risk.get("rolling_loss_window_hours", 0))
+        self.rolling_loss_pct = float(self.risk.get("rolling_loss_pct", self.risk.get("max_daily_loss_pct", 1.5)))
+        self._rolling_trades: Dict[str, List[tuple]] = {}  # market -> [(datetime, pnl_inr)]
         self.trades_today: Dict[str, int] = {}  # symbol -> count
         self.last_loss_time: Dict[str, datetime] = {}
         self.paused = False
@@ -80,6 +83,19 @@ class RiskManager:
         if equity > 0 and daily_pnl_total <= -equity * max_loss_pct:
             self.kill_switch = True
             return False, "max daily loss"
+        # rolling loss limit for always_open markets (e.g. Crypto)
+        if self.rolling_window_hours > 0:
+            cfg_market = self.clock.cfg.get(market, {}) or {}
+            if cfg_market.get("always_open") and equity > 0:
+                cutoff = datetime.now(timezone.utc) - timedelta(hours=self.rolling_window_hours)
+                losses = sum(
+                    pnl
+                    for ts, pnl in self._rolling_trades.get(market, [])
+                    if ts >= cutoff and pnl < 0
+                )
+                if losses <= -equity * self.rolling_loss_pct / 100.0:
+                    self.kill_switch = True
+                    return False, "rolling loss"
         # concurrent limits
         if len(positions) >= self.risk["max_concurrent_positions"]:
             return False, "max concurrent"
@@ -123,7 +139,13 @@ class RiskManager:
         mins = self.risk["square_off_before_close_minutes"]
         return local >= close_dt - timedelta(minutes=mins)
 
-    def record_trade_result(self, symbol: str, pnl: float):
+    def record_trade_result(self, symbol: str, market: str, pnl: float, at=None):
+        at = at or datetime.now(timezone.utc)
+        self._rolling_trades.setdefault(market, []).append((at, float(pnl)))
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=self.rolling_window_hours)
+        self._rolling_trades[market] = [
+            t for t in self._rolling_trades.get(market, []) if t[0] >= cutoff
+        ]
         self.trades_today[symbol] = self.trades_today.get(symbol, 0) + 1
         if pnl < 0:
             self.last_loss_time[symbol] = datetime.now(timezone.utc)

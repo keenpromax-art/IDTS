@@ -368,6 +368,27 @@ MKT_CODE = {"India": "IN", "Japan": "JP", "Europe": "UK", "USA": "US",
 MKT_CCY = {"India": "INR", "Japan": "JPY", "Europe": "GBP", "USA": "USD",
            "HongKong": "HKD", "Australia": "AUD"}
 
+SHORT_LABELS = {
+    "ema_cross": "EMA-X", "ema_20_50": "20/50", "ema_50_200": "50/200",
+    "ema_8_21": "8/21", "ema_stack": "Stack", "macd_momentum": "MACD-V",
+    "macd_zero": "MACD-0", "macd_divergence": "MACD-D", "stochastic": "STOCH",
+    "cci": "CCI", "roc": "ROC", "mfi": "MFI", "williams_r": "W%R",
+    "rsi_reversal": "RSI-Rev", "donchian": "DONCH", "keltner": "KELT",
+    "bb_expansion": "BB-Exp", "volume_breakout": "Vol-BO",
+    "range_extreme": "Range-X", "psar": "PSAR", "adx_di": "ADX-DI",
+    "ichimoku": "ICHI", "triple_screen": "3-Scr", "vwap": "VWAP",
+    "vwap_band": "VWAP-B", "orb": "ORB", "supertrend": "ST",
+    "bb_squeeze": "BB-Sqz", "pivot": "Pivot",
+    "rule_trend_stack": "TrendPB", "rule_trend_stack_short": "TrendPB-S",
+    "rule_golden_cross": "Golden+", "rule_macd_ema": "MACD-EMA",
+    "rule_macd_ema_short": "MACD-EMA-S", "rule_breakout_volume": "BO-Vol",
+    "rule_breakout_volume_short": "BD-Vol", "rule_squeeze_release": "Sqz-Rel",
+    "rule_vwap_reversion": "VWAP-Rev", "rule_vwap_reversion_short": "VWAP-Rev-S",
+    "rule_supertrend_volume": "ST-Vol", "rule_rsi_mfi": "RSI-MFI",
+    "rule_rsi_mfi_short": "RSI-MFI-S", "rule_ema20_50_cross": "20/50-ADX",
+    "rule_keltner_trend": "Kelt-Stack", "rule_obv_momentum": "OBV-Mom",
+}
+
 
 def mkt_code(markets_cfg: dict, market: str) -> str:
     """Short code for a market, from the market config."""

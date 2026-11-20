@@ -13,3 +13,5 @@ pytest>=8
 # Optional accelerator for the EMA recursion in trader/core/np_indicators.py.
 # Without it the code falls back to a numpy loop - slower but correct.
 scipy>=1.10
+# Browser UI: streamlit run streamlit_app.py
+streamlit>=1.37
